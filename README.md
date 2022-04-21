@@ -1,6 +1,6 @@
 
 
-### Variational Recurrent Neural Network
+### 1. Variational Recurrent Neural Network
 
 Code adapted from [https://github.com/emited/VariationalRecurrentNeuralNetwork](https://github.com/emited/VariationalRecurrentNeuralNetwork)
 
