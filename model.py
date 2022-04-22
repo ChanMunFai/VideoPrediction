@@ -5,12 +5,13 @@ import torch.utils
 import torch.utils.data
 from torchvision import datasets, transforms
 from torch.autograd import Variable
-import matplotlib.pyplot as plt 
+import matplotlib.pyplot as plt
 
+from conv_network import ConvNet
 
 """implementation of the Variational Recurrent
 Neural Network (VRNN) from https://arxiv.org/abs/1506.02216
-using unimodal isotropic gaussian distributions for 
+using unimodal isotropic gaussian distributions for
 inference, prior, and generating models."""
 
 # changing device
@@ -27,11 +28,14 @@ class VRNN(nn.Module):
         self.n_layers = n_layers
 
         #feature-extracting transformations
-        self.phi_x = nn.Sequential(
-            nn.Linear(x_dim, h_dim),
-            nn.ReLU(),
-            nn.Linear(h_dim, h_dim),
-            nn.ReLU())
+        # self.phi_x = nn.Sequential(
+        #     nn.Linear(x_dim, h_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(h_dim, h_dim),
+        #     nn.ReLU())
+
+        self.phi_x = ConvNet()
+
         self.phi_z = nn.Sequential(
             nn.Linear(z_dim, h_dim),
             nn.ReLU())
@@ -42,6 +46,7 @@ class VRNN(nn.Module):
             nn.ReLU(),
             nn.Linear(h_dim, h_dim),
             nn.ReLU())
+
         self.enc_mean = nn.Linear(h_dim, z_dim)
         self.enc_std = nn.Sequential(
             nn.Linear(h_dim, z_dim),
@@ -63,11 +68,11 @@ class VRNN(nn.Module):
             nn.Linear(h_dim, h_dim),
             nn.ReLU())
         self.dec_std = nn.Sequential(
-            nn.Linear(h_dim, x_dim),
+            nn.Linear(h_dim, x_dim * x_dim),
             nn.Softplus())
-        #self.dec_mean = nn.Linear(h_dim, x_dim)
+
         self.dec_mean = nn.Sequential(
-            nn.Linear(h_dim, x_dim),
+            nn.Linear(h_dim, x_dim * x_dim),
             nn.Sigmoid())
 
         #recurrence
@@ -81,29 +86,52 @@ class VRNN(nn.Module):
         kld_loss = 0
         nll_loss = 0
 
-        h = torch.zeros(self.n_layers, x.size(1), self.h_dim, device=device)
-        for t in range(x.size(0)):
+        # h are the hidden layers
+        # It needs to have n_layers, h dimensions and batch size
+        h = torch.zeros(self.n_layers, x.size(0), self.h_dim, device=device) # may have to change this
 
-            phi_x_t = self.phi_x(x[t])
+        for t in range(x.size(1)): # first dimension supposed to be sequence length
 
-            #encoder
+            # print("Size of input", x[:,t,:,:,:].shape) # Batch X Height X Width
+
+            phi_x_t = self.phi_x(x[:,t,:,:,:])
+
+            # Same size as h dim
+            # print("Size of Encoded Video", phi_x_t.shape) # Batch X h dim
+
+            #encoder/posterior
             enc_t = self.enc(torch.cat([phi_x_t, h[-1]], 1))
+            # print("Size of Encoding at time t", enc_t.shape) # Batch X h dim
+
             enc_mean_t = self.enc_mean(enc_t)
-            enc_std_t = self.enc_std(enc_t) 
+            # print("Size of Encoded Mean at time t", enc_mean_t.shape) # Batch X z_dim
+
+            enc_std_t = self.enc_std(enc_t)
+            # print("Size of Encoded Std at time t", enc_std_t.shape) # Batch X z_dim
 
             #prior
             prior_t = self.prior(h[-1])
+            # print("Size of Prior", prior_t.shape) # Batch X h_dim
+
             prior_mean_t = self.prior_mean(prior_t)
+            # print("Size of Prior Mean", prior_mean_t.shape) # Batch X z_dim
+
             prior_std_t = self.prior_std(prior_t)
+            # print("Size of Prior Std", prior_std_t.shape) # Batch X z_dim
 
             #sampling and reparameterization
             z_t = self._reparameterized_sample(enc_mean_t, enc_std_t)
-            phi_z_t = self.phi_z(z_t)
+            # print("Size of latent variable zt", z_t.shape) # Batch X z_dim
 
-            #decoder
+            phi_z_t = self.phi_z(z_t) # convert this to h dim
+            # print("Size of phi_z_t", phi_z_t.shape) # Batch X h_dim
+
+            #decoder - change this to transpose conv
             dec_t = self.dec(torch.cat([phi_z_t, h[-1]], 1))
             dec_mean_t = self.dec_mean(dec_t)
+            dec_mean_t = dec_mean_t.view(-1, 64, 64)
             dec_std_t = self.dec_std(dec_t)
+            dec_std_t = dec_std_t.view(-1, 64, 64)
 
             #recurrence
             _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
@@ -111,7 +139,10 @@ class VRNN(nn.Module):
             #computing losses
             kld_loss += self._kld_gauss(enc_mean_t, enc_std_t, prior_mean_t, prior_std_t)
             #nll_loss += self._nll_gauss(dec_mean_t, dec_std_t, x[t])
-            nll_loss += self._nll_bernoulli(dec_mean_t, x[t])
+            nll_loss += self._nll_bernoulli(dec_mean_t, x[:,t,:,:,:])
+
+            # dec_mean_t -
+            # x[:,t,:,:,:].shape - Batch X Height X Width
 
             all_enc_std.append(enc_std_t)
             all_enc_mean.append(enc_mean_t)
@@ -125,7 +156,7 @@ class VRNN(nn.Module):
 
     def sample(self, seq_len):
 
-        sample = torch.zeros(seq_len, self.x_dim, device=device)
+        sample = torch.zeros(seq_len, 1, self.x_dim, self.x_dim, device=device)
 
         h = torch.zeros(self.n_layers, 1, self.h_dim, device=device)
         for t in range(seq_len):
@@ -142,9 +173,11 @@ class VRNN(nn.Module):
             #decoder
             dec_t = self.dec(torch.cat([phi_z_t, h[-1]], 1))
             dec_mean_t = self.dec_mean(dec_t)
+            dec_mean_t = dec_mean_t.view(-1, 1, 64, 64)
+            # print(dec_mean_t.shape) # batch X 1 X H x W
             #dec_std_t = self.dec_std(dec_t)
 
-            phi_x_t = self.phi_x(dec_mean_t)
+            phi_x_t = self.phi_x(dec_mean_t) # Batch X h dim
 
             #recurrence
             _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
@@ -172,7 +205,7 @@ class VRNN(nn.Module):
     def _kld_gauss(self, mean_1, std_1, mean_2, std_2):
         """Using std to compute KLD"""
 
-        kld_element =  (2 * torch.log(std_2 + EPS) - 2 * torch.log(std_1 + EPS) + 
+        kld_element =  (2 * torch.log(std_2 + EPS) - 2 * torch.log(std_1 + EPS) +
             (std_1.pow(2) + (mean_1 - mean_2).pow(2)) /
             std_2.pow(2) - 1)
         return	0.5 * torch.sum(kld_element)

@@ -5,12 +5,13 @@ import torch.utils
 import torch.utils.data
 from torchvision import datasets, transforms
 from torch.autograd import Variable
-import matplotlib.pyplot as plt 
+import matplotlib.pyplot as plt
 from model import VRNN
+from data.MovingMNIST import MovingMNIST
 
 """implementation of the Variational Recurrent
 Neural Network (VRNN) from https://arxiv.org/abs/1506.02216
-using unimodal isotropic gaussian distributions for 
+using unimodal isotropic gaussian distributions for
 inference, prior, and generating models."""
 
 def train(epoch):
@@ -19,9 +20,12 @@ def train(epoch):
 
         #transforming data
         data = data.to(device)
-        data = data.squeeze().transpose(0, 1) # (seq, batch, elem)
+        data = torch.unsqueeze(data, 2)
+        # print("data shape", data.shape) # Batch Size X Seq Length X Channels X Height X Width
+        # All batches need to be of same seq lengths ??
+
         data = (data - data.min()) / (data.max() - data.min())
-        
+
         #forward + backward + optimize
         optimizer.zero_grad()
         kld_loss, nll_loss, _, _ = model(data)
@@ -39,24 +43,25 @@ def train(epoch):
                 100. * batch_idx / len(train_loader),
                 kld_loss / batch_size,
                 nll_loss / batch_size))
-            
-            sample = model.sample(torch.tensor(28, device=device))
-            plt.imshow(sample.to(torch.device('cpu')).numpy())
-            plt.pause(1e-6)
+
+            sample = model.sample(torch.tensor(2, device=device))
+            sample = sample.squeeze() # remove channel dimension
+            # plt.imshow(sample[0].to(torch.device('cpu')).numpy())
+            # plt.pause(1e-6)
 
         train_loss += loss.item()
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
         epoch, train_loss / len(train_loader.dataset)))
-    
+
 
 def test(epoch):
-    """uses test data to evaluate 
+    """uses test data to evaluate
     likelihood of the model"""
 
     mean_kld_loss, mean_nll_loss = 0, 0
     with torch.no_grad():
-        for i, (data, _) in enumerate(test_loader):                                            
+        for i, (data, _) in enumerate(test_loader):
 
             data = data.to(device)
             data = data.squeeze().transpose(0, 1)
@@ -68,7 +73,7 @@ def test(epoch):
 
     mean_kld_loss /= len(test_loader.dataset)
     mean_nll_loss /= len(test_loader.dataset)
-   
+
     print('====> Test set loss: KLD Loss = {:.4f}, NLL Loss = {:.4f} '.format(
         mean_kld_loss, mean_nll_loss))
 
@@ -81,16 +86,16 @@ else:
     device = torch.device('cpu')
 
 #hyperparameters
-x_dim = 28
+x_dim = 64
 h_dim = 100
 z_dim = 16
 n_layers =  1
-n_epochs = 25
+n_epochs = 2
 clip = 10
 learning_rate = 1e-3
 batch_size = 8 #128
 seed = 128
-print_every = 1000 # batches
+print_every = 1 # batches
 save_every = 10 # epochs
 
 #manual seed
@@ -99,15 +104,17 @@ plt.ion()
 
 #init model + optimizer + datasets
 
-train_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('data', train=True, download=True,
-        transform=transforms.ToTensor()),
-    batch_size=batch_size, shuffle=True)
+train_set = MovingMNIST(root='.dataset/mnist', train=True, download=True)
+test_set = MovingMNIST(root='.dataset/mnist', train=False, download=True)
 
+train_loader = torch.utils.data.DataLoader(
+                dataset=train_set,
+                batch_size=batch_size,
+                shuffle=True)
 test_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('data', train=False, 
-        transform=transforms.ToTensor()),
-    batch_size=batch_size, shuffle=True)
+                dataset=test_set,
+                batch_size=batch_size,
+                shuffle=False)
 
 model = VRNN(x_dim, h_dim, z_dim, n_layers)
 model = model.to(device)
@@ -117,7 +124,7 @@ for epoch in range(1, n_epochs + 1):
 
     #training + testing
     train(epoch)
-    test(epoch)
+    # test(epoch) # need to change
 
     #saving model
     if epoch % save_every == 1:
