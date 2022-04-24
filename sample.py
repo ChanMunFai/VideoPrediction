@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from model import VRNN
 
 #hyperparameters
-x_dim = 28
+x_dim = 64
 h_dim = 100
 z_dim = 16
 n_layers =  1

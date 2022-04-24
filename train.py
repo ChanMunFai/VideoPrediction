@@ -9,11 +9,6 @@ import matplotlib.pyplot as plt
 from model import VRNN
 from data.MovingMNIST import MovingMNIST
 
-"""implementation of the Variational Recurrent
-Neural Network (VRNN) from https://arxiv.org/abs/1506.02216
-using unimodal isotropic gaussian distributions for
-inference, prior, and generating models."""
-
 def train(epoch):
     train_loss = 0
     for batch_idx, (data, _) in enumerate(train_loader):
@@ -22,13 +17,12 @@ def train(epoch):
         data = data.to(device)
         data = torch.unsqueeze(data, 2)
         # print("data shape", data.shape) # Batch Size X Seq Length X Channels X Height X Width
-        # All batches need to be of same seq lengths ??
 
         data = (data - data.min()) / (data.max() - data.min())
 
         #forward + backward + optimize
         optimizer.zero_grad()
-        kld_loss, nll_loss, _, _ = model(data)
+        kld_loss, nll_loss, _ = model(data)
         loss = kld_loss + nll_loss
         loss.backward()
         optimizer.step()
@@ -44,8 +38,8 @@ def train(epoch):
                 kld_loss / batch_size,
                 nll_loss / batch_size))
 
-            sample = model.sample(torch.tensor(2, device=device))
-            sample = sample.squeeze() # remove channel dimension
+            # sample = model.sample(torch.tensor(2, device=device))
+            # sample = sample.squeeze() # remove channel dimension
             # plt.imshow(sample[0].to(torch.device('cpu')).numpy())
             # plt.pause(1e-6)
 
@@ -67,7 +61,7 @@ def test(epoch):
             data = data.squeeze().transpose(0, 1)
             data = (data - data.min()) / (data.max() - data.min())
 
-            kld_loss, nll_loss, _, _ = model(data)
+            kld_loss, nll_loss, _ = model(data)
             mean_kld_loss += kld_loss.item()
             mean_nll_loss += nll_loss.item()
 
@@ -87,15 +81,15 @@ else:
 
 #hyperparameters
 x_dim = 64
-h_dim = 100
-z_dim = 16
-n_layers =  1
-n_epochs = 2
+h_dim = 1024
+z_dim = 32
+n_layers =  3
+n_epochs = 300
 clip = 10
 learning_rate = 1e-3
-batch_size = 8 #128
+batch_size = 64 #128
 seed = 128
-print_every = 1 # batches
+print_every = 20 # batches
 save_every = 10 # epochs
 
 #manual seed
