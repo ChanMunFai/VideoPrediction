@@ -58,7 +58,7 @@ def test(epoch):
         for i, (data, _) in enumerate(test_loader):
 
             data = data.to(device)
-            data = data.squeeze().transpose(0, 1)
+            data = torch.unsqueeze(data, 2)
             data = (data - data.min()) / (data.max() - data.min())
 
             kld_loss, nll_loss, _ = model(data)
@@ -94,7 +94,7 @@ save_every = 10 # epochs
 
 #manual seed
 torch.manual_seed(seed)
-plt.ion()
+# plt.ion()
 
 #init model + optimizer + datasets
 

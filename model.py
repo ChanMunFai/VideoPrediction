@@ -122,24 +122,162 @@ class VRNN(nn.Module):
 
             #sampling and reparameterization
             z_t = self._reparameterized_sample(prior_mean_t, prior_std_t)
-            phi_z_t = self.phi_z(z_t)
+            zt_tilde = self.phi_z(z_t)
 
             #decoder
-            dec_t = self.dec(torch.cat([phi_z_t, h[-1]], 1))
-            dec_mean_t = self.dec_mean(dec_t)
-            dec_mean_t = dec_mean_t.view(-1, 1, 64, 64)
+            xt_hat = self.dec(torch.cat([zt_tilde, h[-1]], 1))
             # print(dec_mean_t.shape) # batch X 1 X H x W
             #dec_std_t = self.dec_std(dec_t)
 
-            phi_x_t = self.phi_x(dec_mean_t) # Batch X h dim
+            # is this supposed to be xt instead??
+            xt_tilde = self.embed(xt_hat) # Batch X h dim
 
             #recurrence
-            _, h = self.rnn(torch.cat([phi_x_t, phi_z_t], 1).unsqueeze(0), h)
+            _, h = self.rnn(torch.cat([xt_tilde, zt_tilde], 1).unsqueeze(0), h)
 
-            sample[t] = dec_mean_t.data
+            sample[t] = xt_hat.data
 
         return sample
 
+    def generate_frames(self, x):
+        h = torch.zeros(self.n_layers, x.size(0), self.h_dim, device=device)
+
+        generated_frames = torch.zeros(x.size(1), 1, self.x_dim, self.x_dim, device=device)
+
+        for t in range(x.size(1)):
+            xt = x[:,t,:,:,:] # assume x has channel dimension
+
+            xt_tilde = self.embed(xt)
+
+            #encoder and reparameterisation
+            enc_t = self.enc(torch.cat([xt_tilde, h[-1]], 1)) # final layer of h
+            enc_mean_t = self.enc_mean(enc_t)
+            enc_std_t = self.enc_std(enc_t)
+
+            zt = self._reparameterized_sample(enc_mean_t, enc_std_t)
+
+            #decoding
+            zt_tilde = self.phi_z(zt) # convert dim from z_dim to h_dim
+            input_latent = torch.cat([zt_tilde, h[-1]], 1)
+            xt_hat = self.dec(input_latent)
+
+            #recurrence
+            _, h = self.rnn(torch.cat([xt_tilde, zt_tilde], 1).unsqueeze(0), h)
+
+            generated_frames[t] = xt_hat
+
+        return generated_frames
+
+    def predict_new(self, x):
+        """Predicts for video frames given that the model has no ground truth access to future.
+
+        Splits x into 2 sub-sequences. Model does not see the 2nd sub sequence, and predicts
+        purely using 1st sub-sequence and predicted frames.
+        """
+        seq_length = x.size(1)
+        seq_length_train = int(seq_length/2)
+        seq_length_test = seq_length - seq_length_train
+
+        h = torch.zeros(self.n_layers, x.size(0), self.h_dim, device=device)
+
+        predicted_frames = torch.zeros(seq_length_test, 1, self.x_dim, self.x_dim, device=device)
+        true_future_frames = torch.zeros(seq_length_train, 1, self.x_dim, self.x_dim, device=device)
+
+        for t in range(x.size(1)):
+            if t < seq_length_train: # seen data
+                xt = x[:,t,:,:,:]
+                xt_tilde = self.embed(xt)
+
+                #encoder and reparameterisation
+                enc_t = self.enc(torch.cat([xt_tilde, h[-1]], 1))
+                enc_mean_t = self.enc_mean(enc_t)
+                enc_std_t = self.enc_std(enc_t)
+
+                zt = self._reparameterized_sample(enc_mean_t, enc_std_t)
+
+                #decoding
+                zt_tilde = self.phi_z(zt)
+                input_latent = torch.cat([zt_tilde, h[-1]], 1)
+                xt_hat = self.dec(input_latent)
+
+            else: # unseen data
+                #prior
+                prior_t = self.prior(h[-1])
+                prior_mean_t = self.prior_mean(prior_t)
+                prior_std_t = self.prior_std(prior_t)
+
+                zt = self._reparameterized_sample(prior_mean_t, prior_std_t)
+
+                #decoding
+                zt_tilde = self.phi_z(zt)
+                input_latent = torch.cat([zt_tilde, h[-1]], 1)
+                xt_hat = self.dec(input_latent)
+
+                predicted_frames[t-seq_length_train] = xt_hat
+
+            #recurrence
+            _, h = self.rnn(torch.cat([xt_tilde, zt_tilde], 1).unsqueeze(0), h)
+
+        return predicted_frames
+
+    def predict(self, x):
+        """Predicts for video frames given that the model has no ground truth access to future.
+
+        Instead of using approximate posterior (z|x<t) to sample latent variable,
+        we sample z directly from its prior (as suggested by SV2P)
+
+        Splits x into 2 sub-sequences. Model does not see the 2nd sub sequence, and predicts
+        purely using 1st sub-sequence and predicted frames.
+        """
+        seq_length = x.size(1)
+        seq_length_train = int(seq_length/2)
+        seq_length_test = seq_length - seq_length_train
+
+        h = torch.zeros(self.n_layers, x.size(0), self.h_dim, device=device)
+
+        predicted_frames = torch.zeros(seq_length_test, 1, self.x_dim, self.x_dim, device=device)
+        true_future_frames = torch.zeros(seq_length_train, 1, self.x_dim, self.x_dim, device=device)
+
+        for t in range(x.size(1)):
+            if t < seq_length_train: # seen data
+                xt = x[:,t,:,:,:]
+                xt_tilde = self.embed(xt)
+
+                #encoder and reparameterisation
+                enc_t = self.enc(torch.cat([xt_tilde, h[-1]], 1))
+                enc_mean_t = self.enc_mean(enc_t)
+                enc_std_t = self.enc_std(enc_t)
+
+                zt = self._reparameterized_sample(enc_mean_t, enc_std_t)
+
+                #decoding
+                zt_tilde = self.phi_z(zt)
+                input_latent = torch.cat([zt_tilde, h[-1]], 1)
+                xt_hat = self.dec(input_latent)
+
+
+            else: # unseen data
+                xt = xt_hat # use predicted xt instead of actual xt
+                xt_tilde = self.embed(xt)
+
+                #encoder and reparameterisation
+                enc_t = self.enc(torch.cat([xt_tilde, h[-1]], 1))
+                enc_mean_t = self.enc_mean(enc_t)
+                enc_std_t = self.enc_std(enc_t)
+
+                zt = self._reparameterized_sample(enc_mean_t, enc_std_t)
+
+                #decoding
+                zt_tilde = self.phi_z(zt)
+                input_latent = torch.cat([zt_tilde, h[-1]], 1)
+                xt_hat = self.dec(input_latent)
+
+                predicted_frames[t-seq_length_train] = xt_hat
+
+            #recurrence
+            _, h = self.rnn(torch.cat([xt_tilde, zt_tilde], 1).unsqueeze(0), h)
+
+        return predicted_frames
 
     def reset_parameters(self, stdv=1e-1):
         for weight in self.parameters():

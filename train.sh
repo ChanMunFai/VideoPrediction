@@ -11,5 +11,9 @@ uptime
 
 cd /vol/bitbucket/mc821/VideoPrediction
 
-python train.py
+# python train.py
+python main.py --epochs 300 --beta=1
+python main.py --epochs 300 --beta=1.5
+python main.py --epochs 300 --beta=2
+python main.py --epochs 300 --beta=2.5
 

@@ -1,0 +1,33 @@
+Tue Apr 26 15:53:55 2022       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 470.103.01   Driver Version: 470.103.01   CUDA Version: 11.4     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla T4            On   | 00000000:00:06.0 Off |                    0 |
+| N/A   37C    P8     9W /  70W |      0MiB / 15109MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+ 15:53:55 up 43 days,  1:10,  2 users,  load average: 1.28, 1.60, 1.62
+Traceback (most recent call last):
+  File "main.py", line 164, in <module>
+    main()
+  File "main.py", line 125, in main
+    logging.basicConfig(filename=log_path, filemode='w', level=logging.INFO)
+  File "/usr/lib/python3.8/logging/__init__.py", line 1988, in basicConfig
+    h = FileHandler(filename, mode)
+  File "/usr/lib/python3.8/logging/__init__.py", line 1147, in __init__
+    StreamHandler.__init__(self, self._open())
+  File "/usr/lib/python3.8/logging/__init__.py", line 1176, in _open
+    return open(self.baseFilename, self.mode, encoding=self.encoding)
+IsADirectoryError: [Errno 21] Is a directory: '/vol/bitbucket/mc821/VideoPrediction/logs/VRNN/v1/VRNN_v1_1.log'
