@@ -15,16 +15,26 @@ from torch.autograd import Variable
 from torch.utils.tensorboard import SummaryWriter
 
 import matplotlib.pyplot as plt
-from cdna.networks import network 
 from data.MovingMNIST import MovingMNIST
+from sv2p.cdna import CDNA # network for CDNA
 
 
 class CDNATrainer:
+    """ In the midst of major refactoring
+
+    CDNATrainer is only used to train the generator.
+
+    We need an argument to determine if network is stochastic (Stage 2)
+    or deterministic (Stage 1)
+
+    We can have another trainer to train all 3 Stages at once
+    """
+
     def __init__(self, *args, **kwargs):
         self.args = kwargs['args']
         self.optimizer = kwargs['optimizer']
         self.writer = SummaryWriter()
-        self.model = kwargs["model"]
+        self.model = kwargs["model"] # cdna
 
     def train(self, train_loader):
         n_iterations = 0
@@ -35,7 +45,7 @@ class CDNATrainer:
         for epoch in range(self.args.epochs):
             print("Epoch:", epoch)
             running_loss = 0 # keep track of loss per epoch
-            
+
             for data, _ in tqdm(train_loader):
 
                 data = data.to(self.args.device)
@@ -44,8 +54,12 @@ class CDNATrainer:
 
                 #forward + backward + optimize
                 self.optimizer.zero_grad()
-                gen_images, gen_states, _ = self.model(data)
-                loss = self.args.beta * kld_loss + nll_loss
+
+                # Output of CDNA model
+                gen_images, hidden, cdna_kerns_t, masks_t = self.model(data) # gen_images are defined as predictions_t
+                recon_loss = self._nll_bernoulli(gen_images, data) # may be wrong
+
+                loss = recon_loss
                 loss.backward()
                 self.optimizer.step()
 
@@ -53,56 +67,44 @@ class CDNATrainer:
 
                 # forward pass
                 print(f"Loss: {loss}")
-                print(f"KLD: {kld_loss}")
-                print(f"Reconstruction Loss: {nll_loss}") # non-weighted by beta
 
                 n_iterations += 1
                 running_loss += loss.item()
-                running_kld += kld_loss.item()
-                running_nll +=  nll_loss.item() # non-weighted by beta
 
             training_loss = running_loss/len(train_loader)
-            training_kld = running_kld/len(train_loader)
-            training_nll = running_nll/len(train_loader)
 
-            print(f"Epoch: {epoch}\
-                    \n Train Loss: {training_loss}\
-                    \n KLD Loss: {training_kld}\
-                    \n Reconstruction Loss: {training_nll}")
-            logging.info(f"{training_loss:.3f}, {training_kld:.3f}, {training_nll:.3f}")
+            print(f"Epoch: {epoch} \n Train Loss: {training_loss}")
 
-            if epoch % self.args.save_every == 0:
-                checkpoint_name = f'saves/{self.args.version}/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_{epoch}.pth'
-                torch.save(self.model.state_dict(), checkpoint_name)
-                print('Saved model to '+checkpoint_name)
+            logging.info(f"{training_loss:.3f}")
 
-        logging.info("Finished training.")
+            # if epoch % self.args.save_every == 0:
+            #     checkpoint_name = f'saves/{self.args.version}/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_{epoch}.pth'
+            #     torch.save(self.model.state_dict(), checkpoint_name)
+            #     print('Saved model to '+checkpoint_name)
+
+        logging.info("Finished training CDNA")
 
         # Save model
-        checkpoint_name = f'saves/{self.args.version}/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_{epoch}.pth'
-        torch.save(self.model.state_dict(), checkpoint_name)
-        print('Saved model to '+checkpoint_name)
-        logging.info('Saved model to '+checkpoint_name)
+        # checkpoint_name = f'saves/{self.args.version}/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_{epoch}.pth'
+        # torch.save(self.model.state_dict(), checkpoint_name)
+        # print('Saved model to '+checkpoint_name)
+        # logging.info('Saved model to '+checkpoint_name)
+
+    def _nll_bernoulli(self, theta, x):
+        EPS = torch.finfo(torch.float).eps # numerical logs
+        return - torch.sum(x*torch.log(theta + EPS) + (1-x)*torch.log(1-theta-EPS))
+
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--epochs', default=1, type=int)
-parser.add_argument('--model', default="VRNN", type=str)
+parser.add_argument('--model', default="cdna", type=str)
 parser.add_argument('--version', default="v1", type=str)
-
-# These arguments can only be changed if we use a model version that is not v1 or v0
-parser.add_argument('--xdim', default=64, type=int)
-parser.add_argument('--hdim', default=1024, type=int)
-parser.add_argument('--zdim', default=32, type=int)
-parser.add_argument('--nlayers', default=1, type=int)
-parser.add_argument('--clip', default=10, type=int)
-
-parser.add_argument('--beta', default=1, type=float)
 
 parser.add_argument('--save_every', default=100, type=int) # seems like not working
 
 parser.add_argument('--learning_rate', default=1e-4, type=float)
-parser.add_argument('--batch_size', default=50, type=int)
+parser.add_argument('--batch_size', default=4, type=int)
 
 
 def main():
@@ -117,29 +119,12 @@ def main():
         args.device = torch.device('cpu')
 
     # set up logging
-    log_fname = f'{args.model}_{args.version}_beta={args.beta}_{args.epochs}.log'
+    log_fname = f'{args.model}_{args.version}_{args.epochs}.log'
     log_dir = f"logs/{args.model}/{args.version}/"
     log_path = log_dir + log_fname
     if not os.path.isdir(log_dir):
         os.makedirs(log_dir)
     logging.basicConfig(filename=log_path, filemode='w+', level=logging.INFO)
-
-    # Default values for VRNN model versions
-    if args.model == "VRNN":
-        if args.version == "v0":
-            args.xdim = 64
-            args.hdim = 1024
-            args.zdim = 32
-            args.nlayers = 3
-            args.clip = 10
-        elif args.version == "v1":
-            args.xdim = 64
-            args.hdim = 1024
-            args.zdim = 32
-            args.nlayers = 1
-            args.clip = 10
-        else:
-            pass
 
     logging.info(args)
 
@@ -150,13 +135,13 @@ def main():
                 batch_size=args.batch_size,
                 shuffle=True)
 
-    # Load in model
-    if args.model == "VRNN":
-        VRNNTrainer
-        model = VRNN(args.xdim, args.hdim, args.zdim, args.nlayers)
+    if args.model == "cdna":
+        model = CDNA(in_channels = 1, cond_channels = 0,
+        n_masks = 10)
+        print(model)
         model = model.to(args.device)
         optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-        trainer = VRNNTrainer(args=args, model=model, optimizer=optimizer)
+        trainer = CDNATrainer(args=args, model=model, optimizer=optimizer)
 
     trainer.train(train_loader)
 
