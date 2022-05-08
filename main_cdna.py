@@ -36,10 +36,61 @@ class CDNATrainer:
         self.writer = SummaryWriter()
         self.model = kwargs["model"] # cdna
 
-    def train(self, train_loader):
-        n_iterations = 0
-        logging.info(f"Starting CDNA training for {self.args.epochs} epochs.")
+        self.criterion = nn.MSELoss().to(self.args.device)
 
+    def train_once(self, inputs, targets):
+        """
+        Adapted from: https://github.com/kkew3/cse291g-sv2p/blob/master/src/train/train_cdna.py
+
+        :param inputs: of shape (self.batch_size, self.seqlen-1, 1,  64, 64)
+        :param targets: of shape (self.batch_size, self.seqlen-1, 1,  64, 64)
+        """
+
+        batch_size, seqlen = inputs.size(0), inputs.size(1) # swapped accd to my own implementation
+
+        hidden = None
+        loss = 0.0
+
+        for t in range(seqlen):
+            x_t = inputs[:,t,:,:,:]
+            # targets_t = targets[:,t,:,:,:]
+
+            predictions_t, hidden, cdna_kerns_t, masks_t = self.model(
+                    x_t, hidden_states=hidden)
+
+            loss_t, _ , _ = self.__compute_loss(
+                predictions_t, cdna_kerns_t, masks_t, targets_t)
+
+            loss += loss_t
+
+        total_loss = loss / seqlen
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.optimizer.step()
+
+        return loss.detach().cpu().item() / seqlen
+
+    def _split_data(self, data):
+        """ Splits sequence of video frames into inputs and targets
+
+        Both have shapes (Batch_Size X Seq_Len–1 X
+                            Num_Channels X Height X Width)
+
+        data: Batch Size X Seq Length X Channels X Height X Width
+
+        Inputs: x_0 to x_T-1
+        Targets: x_1 to x_T
+        """
+
+        inputs = data[:, :-1, :, :, :]
+        targets = data[:, 1:, :, :, :]
+
+        assert inputs.shape == targets.shape
+        return inputs, targets
+
+
+    def train_1(self, train_loader):
+        logging.info(f"Starting CDNA training for {self.args.epochs} epochs.")
         logging.info("Train Loss") # header for losses
 
         for epoch in range(self.args.epochs):
@@ -52,47 +103,86 @@ class CDNATrainer:
                 data = torch.unsqueeze(data, 2) # Batch Size X Seq Length X Channels X Height X Width
                 data = (data - data.min()) / (data.max() - data.min())
 
-                #forward + backward + optimize
                 self.optimizer.zero_grad()
 
-                # Output of CDNA model
-                gen_images, hidden, cdna_kerns_t, masks_t = self.model(data) # gen_images are defined as predictions_t
-                recon_loss = self._nll_bernoulli(gen_images, data) # may be wrong
+                # Separate data into inputs and targets
+                # inputs, targets are both of size: Batch Size X Seq Length - 1 X Channels X Height X Width
+                inputs, targets = self._split_data(data)
 
-                loss = recon_loss
-                loss.backward()
+                hidden = None
+                loss = 0.0
+
+                # recurrent forward pass
+                for t in range(inputs.size(1)):
+                    x_t = inputs[:, t, :, :, :]
+                    targets_t = targets[:, t, :, :, :] # x_t+1
+
+                    # Output x_t+1 hat given x_t
+                    predictions_t, hidden, _, _ = self.model(
+                                                x_t, hidden_states=hidden)
+
+                    loss_t = self.criterion(predictions_t, targets_t) # compare x_t+1 hat with x_t+1
+                    print(loss_t)
+                    loss += loss_t
+
+                total_loss = loss / inputs.size(1)
+                self.optimizer.zero_grad()
+                total_loss.backward()
                 self.optimizer.step()
 
                 nn.utils.clip_grad_norm_(self.model.parameters(), self.args.clip)
 
-                # forward pass
-                print(f"Loss: {loss}")
-
-                n_iterations += 1
-                running_loss += loss.item()
+                running_loss += total_loss.item()
 
             training_loss = running_loss/len(train_loader)
-
             print(f"Epoch: {epoch} \n Train Loss: {training_loss}")
-
             logging.info(f"{training_loss:.3f}")
 
-            # if epoch % self.args.save_every == 0:
-            #     checkpoint_name = f'saves/{self.args.version}/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_{epoch}.pth'
-            #     torch.save(self.model.state_dict(), checkpoint_name)
-            #     print('Saved model to '+checkpoint_name)
+    def train_2(self, train_loader):
+        logging.info(f"Starting CDNA training for {self.args.epochs} epochs.")
+        logging.info("Train Loss") # header for losses
 
-        logging.info("Finished training CDNA")
+        for epoch in range(self.args.epochs):
+            print("Epoch:", epoch)
+            running_loss = 0 # keep track of loss per epoch
 
-        # Save model
-        # checkpoint_name = f'saves/{self.args.version}/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_{epoch}.pth'
-        # torch.save(self.model.state_dict(), checkpoint_name)
-        # print('Saved model to '+checkpoint_name)
-        # logging.info('Saved model to '+checkpoint_name)
+            for data, _ in tqdm(train_loader):
 
-    def _nll_bernoulli(self, theta, x):
-        EPS = torch.finfo(torch.float).eps # numerical logs
-        return - torch.sum(x*torch.log(theta + EPS) + (1-x)*torch.log(1-theta-EPS))
+                data = data.to(self.args.device)
+                data = torch.unsqueeze(data, 2) # Batch Size X Seq Length X Channels X Height X Width
+                data = (data - data.min()) / (data.max() - data.min())
+
+                self.optimizer.zero_grad()
+                inputs, targets = self._split_data(data)
+
+                hidden = None
+                loss = 0.0
+
+                # recurrent forward pass
+                for t in range(inputs.size(1)):
+                    x_t = inputs[:, t, :, :, :]
+                    targets_t = targets[:, t, :, :, :] # x_t+1
+
+                    # Output x_t+1 hat given x_t
+                    predictions_t, hidden, _, _ = self.model(
+                                                x_t, hidden_states=hidden)
+
+                    loss_t = self.criterion(predictions_t, targets_t) # compare x_t+1 hat with x_t+1
+                    print(loss_t)
+                    loss += loss_t
+
+                total_loss = loss / inputs.size(1)
+                self.optimizer.zero_grad()
+                total_loss.backward()
+                self.optimizer.step()
+
+                nn.utils.clip_grad_norm_(self.model.parameters(), self.args.clip)
+
+                running_loss += total_loss.item()
+
+            training_loss = running_loss/len(train_loader)
+            print(f"Epoch: {epoch} \n Train Loss: {training_loss}")
+            logging.info(f"{training_loss:.3f}")
 
 
 

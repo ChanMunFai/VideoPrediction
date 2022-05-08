@@ -30,12 +30,11 @@ class PosteriorInferenceNet(nn.Module):
         self.features = nn.Sequential(
             # the paper does not mention clearly how they condition on all
             # frames in a temporal batch; I'll just use conv3d here
-            nn.Conv3d(3, 32, (tbatch, 3, 3),
-                      stride=(1, 2, 2), padding=(0, 1, 1)),
-            nn.ReLU(inplace=True),
-            Squeeze(2), # remove dimension 2 - why? is this some channel dimension
-            nn.BatchNorm2d(32),
-            nn.Conv2d(32, 64, 3, stride=2, padding=1),
+            # nn.Conv3d(1, 32, (tbatch, 3, 3),
+            #           stride=(1, 2, 2), padding=(0, 1, 1)),
+
+            nn.BatchNorm2d(10), # changed from 32 to 10
+            nn.Conv2d(10, 64, 3, stride=2, padding=1), # changed from 32 to 10
             nn.ReLU(inplace=True),
             nn.BatchNorm2d(64),
             nn.Conv2d(64, 64, 3, padding=1),
@@ -44,24 +43,44 @@ class PosteriorInferenceNet(nn.Module):
             nn.Conv2d(64, 2, 3, stride=2, padding=1, bias=False),
         )
 
+        self.find_mu = nn.Sequential(
+            nn.Conv2d(2, 1, 3, stride=2, padding=1, bias=False),
+        )
+
+
+        self.find_sigma = nn.Sequential(
+            nn.Conv2d(2, 1, 3, stride=2, padding=1, bias=False),
+        )
+
     # pylint: disable=arguments-differ
     def forward(self, frames: torch.Tensor) -> torch.Tensor:
         assert len(frames.shape) == 5, str(frames.shape) # Batch X Seq Len X Num of Channels X Width X Height
-        return self.features(frames)
 
+        # Batch X (Seq Len * Num of Channels) X Width X Height
+        stacked_frames = frames.view(frames.size(0), -1,
+                        frames.size(-2), frames.size(-1))
+
+        output = self.features(stacked_frames)
+        mu = self.find_mu(output)
+
+        m = nn.Softplus()
+        sigma = self.find_sigma(output)
+        sigma = m(sigma) # constraint sigma to positive
+
+        return mu, sigma
 
 class LatentVariableSampler:
     def __init__(self):
         self.using_prior: bool = False
         self.__prior = torch.distributions.Normal(0, 1) # assume prior is Normal
 
-    def sample(self, mu_sigma: torch.Tensor, n: int = 1) -> torch.Tensor:
+    def sample(self, mu, sigma, n: int = 1) -> torch.Tensor:
         """
         If ``self.using_prior`` is True, sample from :math:`N(0, 1)`;
         otherwise, sample from :math:`N(\\mu, \\sigma^2)`.
         i.e. sample from prior or posterior
 
-        :param mu_sigma: the Gaussian parameter tensor of shape (B, 2, H, W)
+        :param mu: the Gaussian parameter tensor of shape (B, 1, 8, 8)
         :param n: how many times to sample
         :return: of shape (B, n, H, W)
         """
@@ -70,8 +89,23 @@ class LatentVariableSampler:
                             mu_sigma.size(2), mu_sigma.size(3))
             z = self.__prior.sample(sample_shape)
         else:
-            z = torch.distributions.Normal(
-                mu_sigma[:, :1], mu_sigma[:, 1:]).sample(
-                (n,))  # shape: (n, B, 1, H, W)
-            z = z.squeeze(2).transpose(0, 1)
+            z = torch.normal(mu, sigma)
         return z
+
+
+if __name__ == "__main__":
+    # Create tensor of size (BS X Seq Len X Channels X NC X W X H)
+    input_tensor = torch.rand(28, 10, 1, 64, 64)
+
+    stacked_tensor = input_tensor.view(input_tensor.size(0), -1,
+                                input_tensor.size(-2), input_tensor.size(-1))
+
+    q_net = PosteriorInferenceNet(tbatch = 10) # temporal batch = 10
+    mu, sigma = q_net(input_tensor)
+
+    sampler = LatentVariableSampler()
+    z = sampler.sample(mu, sigma)
+
+    print(mu.shape)
+    print(sigma.shape)
+    print(z.shape) # batch size X 1 X 8 X 8
