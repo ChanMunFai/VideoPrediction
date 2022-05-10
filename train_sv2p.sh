@@ -14,4 +14,4 @@ cd /vol/bitbucket/mc821/VideoPrediction
 num_epochs=1
 
 # python train.py
-python main_cdna.py --epochs $num_epochs
+python main_sv2p.py --epochs $num_epochs
