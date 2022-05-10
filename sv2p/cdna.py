@@ -16,6 +16,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from sv2p.convlstm import ConvLSTMCell2d
+from sv2p.model import PosteriorInferenceNet
 
 __all__ = [
     'ConditionalUNetLSTM',
@@ -36,14 +37,9 @@ class ConditionalUNetLSTM(nn.Module):
         self.in_channels = in_channels
         self.cond_channels = cond_channels
 
-        self.scale1_conv1 = nn.Conv2d(in_channels, 32, 5, stride=2, padding=2)
-        # there's slight difference with the original TensorFlow
-        # implementation: the shape of learnable parameters in LayerNorm
-        # of TensorFlow is (n_channels, 1, 1) whereas the shape in here
-        # is (n_channels, height, width); the same applies to all
-        # LayerNorm below
+        self.scale1_conv1 = nn.Conv2d(in_channels, 32, 5, stride=2, padding=2) # do I need padding of 2
         self.layer_norm1 = nn.LayerNorm((32, 32, 32))
-        self.state1 = self.conv_lstm(32)
+        self.state1 = self.conv_lstm(32)  # by default, out channels = in channels; 5 by 5 kernels
         self.layer_norm2 = nn.LayerNorm((32, 32, 32))
         # skip connection 1 branches out
         self.state2 = self.conv_lstm(32)
@@ -55,7 +51,10 @@ class ConditionalUNetLSTM(nn.Module):
         self.state4 = self.conv_lstm(64)
         self.layer_norm5 = nn.LayerNorm((64, 16, 16))
         self.conv3 = self.downsample2x(64)
-        self.conv4 = self.reduce_dim(64 + cond_channels, 64)
+
+        # parameters for reduce_dim are changed here but otherwise everything stays the same
+        self.conv4 = self.reduce_dim(64 + cond_channels, 64) # cond_channels are reshaped here
+
         self.state5 = self.conv_lstm(64, 128)
         self.layer_norm6 = nn.LayerNorm((128, 8, 8))
         # branches out to CDNA transformation
@@ -63,14 +62,12 @@ class ConditionalUNetLSTM(nn.Module):
         self.state6 = self.conv_lstm(128, 64)
         self.layer_norm7 = nn.LayerNorm((64, 16, 16))
         # skip connection 2 merges in
-        self.convt2 = self.upsample2x(64 + 64)
+        self.convt2 = self.upsample2x(64 + 64) # 64 times 2 becauses 64 more channels from skip connection
         self.state7 = self.conv_lstm(128, 32)
         self.layer_norm8 = nn.LayerNorm((32, 32, 32))
         # skip connection 1 merges in
         self.convt3 = self.upsample2x(32 + 32)
         self.layer_norm9 = nn.LayerNorm((64, 64, 64))
-        # UNetLSTM general modules done;
-        # the rest modules are DNA/CDNA/STP-specific
 
         gain = nn.init.calculate_gain('relu')
         for m in self.children():
@@ -203,17 +200,13 @@ class CDNA(nn.Module):
     recurrent inner state prediction here.
     """
 
-    def __init__(self, in_channels: int, cond_channels: int, n_masks: int,
-                 with_generator: bool = False):
+    def __init__(self, in_channels: int, cond_channels: int, n_masks: int):
         """
         :param in_channels: image color channels
         :param cond_channels: number of channels of the condition; 0 to have
                no condition
         :param n_masks: number of masks excluding the background mask; must
                be nonnegative
-        :param with_generator: whether or not to use generator to compute the
-               unoccluded pixels; the ``True`` case hasn't been implemented
-               yet
         """
         super().__init__()
         if in_channels <= 0 or cond_channels < 0 or n_masks < 0:
@@ -225,16 +218,13 @@ class CDNA(nn.Module):
                                               ('n_masks', n_masks))))))
 
         self.u_lstm = ConditionalUNetLSTM(in_channels, cond_channels)
-        if with_generator:
-            #self.convt4 = nn.ConvTranspose2d(64, in_channels, 1)
-            raise NotImplementedError()
         self.convt7 = nn.ConvTranspose2d(64, 1 + n_masks, 1)
         self.cdna_params = nn.Linear(128 * 8 * 8, 5 * 5 * n_masks)
 
         self.in_channels = in_channels
         self.cond_channels = cond_channels
         self.n_masks = n_masks
-        self.with_generator = with_generator
+
 
     # pylint: disable=arguments-differ
     def forward(self, inputs: torch.Tensor, conditions: torch.Tensor = None,
@@ -258,7 +248,6 @@ class CDNA(nn.Module):
                         hidden_states=hidden_states)
         # rfeatures -- (r)econstructed (feature) map(s)
 
-        assert not self.with_generator
         transformed_inputs, cdna_kerns = self.transform_inputs(
             inputs, embeddings.reshape(embeddings.size(0), -1), self.n_masks)
         # transform_inputs shape: (B, M, C, H, W)
@@ -296,3 +285,6 @@ class CDNA(nn.Module):
             depthwise_conv2d(inputs[i:i+1], cdna_kerns[i], padding=2)
             for i in range(batch_size)], dim=0)
         return transformed, cdna_kerns.squeeze(2)
+
+
+

@@ -15,16 +15,26 @@ from model import VRNN
 from data.MovingMNIST import MovingMNIST
 
 
-# Load in model
-x_dim = 64
-h_dim = 1024
-z_dim = 32
-n_layers =  3
-batch_size = 16
+model_version = "v1"
+beta = 1.5
+state_dict_path = f'saves/{model_version}/vrnn_state_dict_{model_version}_beta={beta}_299.pth'
+
+if model_version == "v0":
+    x_dim = 64
+    h_dim = 1024
+    z_dim = 32
+    n_layers =  3
+    batch_size = 16
+elif model_version == "v1":
+    x_dim = 64
+    h_dim = 1024
+    z_dim = 32
+    n_layers =  1
+    batch_size = 16
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-state_dict = torch.load('saves/vrnn_state_dict_291.pth', map_location = device)
+state_dict = torch.load(state_dict_path, map_location = device)
 model = VRNN(x_dim, h_dim, z_dim, n_layers)
 model.load_state_dict(state_dict)
 model.to(device)
@@ -61,10 +71,10 @@ def test(plot = True):
 
 
 def plot_images(
-    print_current_frames = False,
-    print_all_predictions = False,
+    print_current_frames = True,
+    print_all_predictions = True,
     prediction_mode = False,
-    new_prediction_mode = True,
+    new_prediction_mode = False,
     batch_item = 0):
     """ Plot images for a single sequence given 3 modes.
 
@@ -78,7 +88,7 @@ def plot_images(
     data = torch.unsqueeze(data, 2)
     data = (data - data.min()) / (data.max() - data.min())
 
-    output_dir = f"results/images/{batch_item}/"
+    output_dir = f"results/images/{model_version}/beta={beta}/{batch_item}/"
     checkdir(output_dir)
 
     # Current Frames
