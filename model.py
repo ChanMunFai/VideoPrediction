@@ -22,6 +22,8 @@ class VRNN(nn.Module):
         self.z_dim = z_dim
         self.n_layers = n_layers
 
+        self.mse_loss = nn.MSELoss()
+
         # embedding - embed xt to xt_tilde (dim h_dim)
         self.embed = Conv()
 
@@ -97,16 +99,16 @@ class VRNN(nn.Module):
 
             #computing losses
             kld_loss += self._kld_gauss(enc_mean_t, enc_std_t, prior_mean_t, prior_std_t)
-            nll_loss += self._nll_bernoulli(xt_hat, xt)
+            # nll_loss += self._nll_bernoulli(xt_hat, xt) # for every time step, for whole image
+            nll_loss += self.mse_loss(xt_hat, xt)
 
             all_enc_std.append(enc_std_t)
             all_enc_mean.append(enc_mean_t)
-            # all_dec_mean.append(dec_mean_t)
-            # all_dec_std.append(dec_std_t)
+
 
         return kld_loss, nll_loss, \
             (all_enc_mean, all_enc_std)
-            # (all_dec_mean, all_dec_std)
+
 
     def sample(self, seq_len):
 
@@ -129,7 +131,6 @@ class VRNN(nn.Module):
             # print(dec_mean_t.shape) # batch X 1 X H x W
             #dec_std_t = self.dec_std(dec_t)
 
-            # is this supposed to be xt instead??
             xt_tilde = self.embed(xt_hat) # Batch X h dim
 
             #recurrence
