@@ -1,0 +1,104 @@
+INFO:root:Namespace(batch_size=52, device=device(type='cuda'), epochs=1, learning_rate=0.0001, model='cdna', save_every=100, stage1_epochs=50, stage2_epochs=1, stage3_epochs=1, version='v1')
+INFO:root:Starting SV2P training on Stage 1 for 50 epochs.
+INFO:root:Train Loss
+INFO:root:0.023
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.020
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.018
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.017
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.016
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.015
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.015
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.015
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.014
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.014
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.014
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.013
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.013
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.013
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.012
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.012
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.012
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.012
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.011
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.011
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.011
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.011
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.011
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.012
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.011
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.010
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.010
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.010
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.010
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.010
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.010
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.012
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.010
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.010
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.009
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.009
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.009
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.009
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.009
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.009
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.009
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.009
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.009
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.008
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.008
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.008
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.008
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.008
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.008
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:0.008
+INFO:root:Saved model to saves/cdna_state_dict_50.pth
+INFO:root:Completed training
