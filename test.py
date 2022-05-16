@@ -16,8 +16,8 @@ from data.MovingMNIST import MovingMNIST
 
 
 model_version = "v1"
-beta = 1.5
-state_dict_path = f'saves/{model_version}/vrnn_state_dict_{model_version}_beta={beta}_299.pth'
+beta = 1.0
+state_dict_path = f'saves/{model_version}/vrnn_state_dict_{model_version}_beta={beta}_149.pth'
 
 if model_version == "v0":
     x_dim = 64
