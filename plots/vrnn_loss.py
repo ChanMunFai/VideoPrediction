@@ -50,6 +50,14 @@ def plot_losses_VRNN(log_path):
     plt.savefig(f"plots/VRNN/{out_path}_losses.jpg")
     plt.figure().clear()
 
+def plot_VRNN_together(log_path):
+    out_path = fpath.split("/")[-1]
+    out_path = out_path.strip(".log")
+
+
 if __name__ == "__main__":
+    # for fpath in fpaths_list:
+    #     plot_losses_VRNN(fpath)
+
     for fpath in fpaths_list:
-        plot_losses_VRNN(fpath)
+        plot_VRNN_together(fpath)
