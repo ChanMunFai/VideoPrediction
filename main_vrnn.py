@@ -30,7 +30,7 @@ class VRNNTrainer:
         n_iterations = 0
         logging.info(f"Starting VRNN training for {self.args.epochs} epochs.")
 
-        logging.info("Train Loss, KLD, Reconstruction Loss") # header for losses
+        logging.info("Train Loss, KLD, MSE") # header for losses
 
         for epoch in range(self.args.epochs):
             print("Epoch:", epoch)
@@ -56,7 +56,7 @@ class VRNNTrainer:
                 # forward pass
                 print(f"Loss: {loss}")
                 print(f"KLD: {kld_loss}")
-                print(f"Reconstruction Loss: {nll_loss}") # non-weighted by beta
+                print(f"Reconstruction Loss:") # non-weighted by beta
 
                 n_iterations += 1
                 running_loss += loss.item()
@@ -71,7 +71,7 @@ class VRNNTrainer:
                     \n Train Loss: {training_loss}\
                     \n KLD Loss: {training_kld}\
                     \n Reconstruction Loss: {training_nll}")
-            logging.info(f"{training_loss:.3f}, {training_kld:.3f}, {training_nll:.3f}")
+            logging.info(f"{training_loss:.8f}, {training_kld:.8f}, {training_nll:.8f}")
 
             if epoch % self.args.save_every == 0:
                 checkpoint_name = f'saves/{self.args.version}/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_{epoch}.pth'

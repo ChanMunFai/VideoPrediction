@@ -2,5 +2,4 @@ saves/
 .dataset/
 __pycache__/
 runs/
-logs/
 out/

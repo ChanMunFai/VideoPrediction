@@ -145,3 +145,11 @@ INFO:root:0.425, -0.000, 0.425
 INFO:root:0.425, -0.000, 0.425
 INFO:root:0.425, -0.000, 0.425
 INFO:root:0.425, -0.000, 0.425
+INFO:root:0.425, -0.000, 0.425
+INFO:root:0.425, -0.000, 0.425
+INFO:root:0.425, -0.000, 0.425
+INFO:root:0.425, -0.000, 0.425
+INFO:root:0.425, -0.000, 0.425
+INFO:root:0.425, -0.000, 0.425
+INFO:root:Finished training.
+INFO:root:Saved model to saves/v1/vrnn_state_dict_v1_beta=1.4_149.pth

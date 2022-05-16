@@ -15,8 +15,8 @@ vsion=v1
 num_epochs=150
 
 # python train.py
-python main_vrnn.py --epochs $num_epochs --beta=5 --version $vsion
-python main_vrnn.py --epochs $num_epochs --beta=10 --version $vsion
-python main_vrnn.py --epochs $num_epochs --beta=15 --version $vsion
-python main_vrnn.py --epochs $num_epochs --beta=20 --version $vsion
-python main_vrnn.py --epochs $num_epochs --beta=25 --version $vsion
+python main_vrnn.py --epochs $num_epochs --beta=1 --version $vsion
+python main_vrnn.py --epochs $num_epochs --beta=4.0 --version $vsion
+python main_vrnn.py --epochs $num_epochs --beta=2.0 --version $vsion
+python main_vrnn.py --epochs $num_epochs --beta=5.0 --version $vsion
+python main_vrnn.py --epochs $num_epochs --beta=3.0 --version $vsion
