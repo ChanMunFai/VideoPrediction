@@ -15,7 +15,7 @@ from torch.autograd import Variable
 from torch.utils.tensorboard import SummaryWriter
 
 import matplotlib.pyplot as plt
-from model import VRNN
+from model_vrnn import VRNN
 from data.MovingMNIST import MovingMNIST
 
 
@@ -48,6 +48,7 @@ class VRNNTrainer:
                 self.optimizer.zero_grad()
                 kld_loss, nll_loss, _ = self.model(data)
                 loss = self.args.beta * kld_loss + nll_loss
+                # loss = self.args.beta * kld_loss # ignore reconstruction loss (for debugging only)
                 loss.backward()
                 self.optimizer.step()
 
@@ -56,7 +57,7 @@ class VRNNTrainer:
                 # forward pass
                 print(f"Loss: {loss}")
                 print(f"KLD: {kld_loss}")
-                print(f"Reconstruction Loss:") # non-weighted by beta
+                print(f"Reconstruction Loss: {nll_loss}") # non-weighted by beta
 
                 n_iterations += 1
                 running_loss += loss.item()
