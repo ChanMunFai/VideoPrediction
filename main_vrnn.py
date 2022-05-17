@@ -18,7 +18,6 @@ import matplotlib.pyplot as plt
 from model_vrnn import VRNN
 from data.MovingMNIST import MovingMNIST
 
-
 class VRNNTrainer:
     def __init__(self, *args, **kwargs):
         self.args = kwargs['args']

@@ -12,11 +12,13 @@ uptime
 cd /vol/bitbucket/mc821/VideoPrediction
 
 vsion=v1
-num_epochs=150
+num_epochs=120
 
 # python train.py
-python main_vrnn.py --epochs $num_epochs --beta=1 --version $vsion
-python main_vrnn.py --epochs $num_epochs --beta=4.0 --version $vsion
-python main_vrnn.py --epochs $num_epochs --beta=2.0 --version $vsion
-python main_vrnn.py --epochs $num_epochs --beta=5.0 --version $vsion
-python main_vrnn.py --epochs $num_epochs --beta=3.0 --version $vsion
+# python main_vrnn.py --epochs $num_epochs --beta=1 --version $vsion
+# python main_vrnn.py --epochs $num_epochs --beta=4.0 --version $vsion
+# python main_vrnn.py --epochs $num_epochs --beta=2.0 --version $vsion
+# python main_vrnn.py --epochs $num_epochs --beta=5.0 --version $vsion
+python main_vrnn.py --epochs $num_epochs --beta=0.0000000001 --version $vsion
+python main_vrnn.py --epochs $num_epochs --beta=0.01 --version $vsion
+
