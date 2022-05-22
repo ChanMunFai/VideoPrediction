@@ -1,0 +1,3 @@
+INFO:root:Namespace(batch_size=50, beta=1, clip=10, device=device(type='cpu'), epochs=1, hdim=64, learning_rate=0.1, model='VRNN', nlayers=1, save_every=100, version='v2', xdim=64, zdim=32)
+INFO:root:Starting VRNN training for 1 epochs.
+INFO:root:Train Loss, KLD, MSE

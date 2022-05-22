@@ -1,0 +1,5 @@
+INFO:root:Namespace(batch_size=50, beta=0.1, clip=10, device=device(type='cuda'), epochs=250, hdim=1024, learning_rate=0.001, model='VRNN', nlayers=1, save_every=100, step_size=1000000, version='v1', xdim=64, zdim=32)
+INFO:root:Starting VRNN training for 250 epochs.
+INFO:root:Train Loss, KLD, MSE
+INFO:root:414.45888604, 194.63972727, 394.99491289
+INFO:root:396.91679721, 185.59964879, 378.35683187
