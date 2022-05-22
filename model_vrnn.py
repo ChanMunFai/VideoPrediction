@@ -7,7 +7,7 @@ from torchvision import datasets, transforms
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 
-from conv_layers import Conv, Deconv
+from conv_layers import Conv, Conv_64, Deconv
 
 # changing device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -22,11 +22,16 @@ class VRNN(nn.Module):
         self.z_dim = z_dim
         self.n_layers = n_layers
 
-        self.mse_loss = nn.MSELoss() # MSE over all pixels 
+        self.mse_loss = nn.MSELoss(reduction = 'sum') # MSE over all pixels 
 
         # embedding - embed xt to xt_tilde (dim h_dim)
-        self.embed = Conv()
-
+        if self.h_dim == 1024: 
+            self.embed = Conv()
+        elif self.h_dim == 64: 
+            self.embed = Conv_64()
+        else: 
+            print("Current parameters not supported.")
+    
         #encoder - encode xt_tilde and h_t-1 into ht
         self.enc = nn.Sequential(
             nn.Linear(h_dim + h_dim, h_dim),
@@ -45,7 +50,7 @@ class VRNN(nn.Module):
             nn.Linear(z_dim, h_dim),
             nn.ReLU())
 
-        self.dec = Deconv()
+        self.dec = Deconv(h_dim = h_dim)
         # self.dec_mean = nn.Linear(h_dim, z_dim)
         # self.dec_std = nn.Sequential(
         #     nn.Linear(h_dim, z_dim),
@@ -68,7 +73,7 @@ class VRNN(nn.Module):
         all_enc_mean, all_enc_std = [], []
         # all_dec_mean, all_dec_std = [], []
         kld_loss = 0
-        nll_loss = 0
+        reconstruction_loss = 0
 
         h = torch.zeros(self.n_layers, x.size(0), self.h_dim, device=device)
 
@@ -99,21 +104,21 @@ class VRNN(nn.Module):
 
             #computing losses
             kld_loss += self._kld_gauss(enc_mean_t, enc_std_t, prior_mean_t, prior_std_t)
-            nll_loss += self.mse_loss(xt_hat, xt)
-            print("MSE Loss at time t:", self.mse_loss(xt_hat, xt))
+            reconstruction_loss += self.mse_loss(xt_hat, xt)
+            # print("MSE Loss at time t:", self.mse_loss(xt_hat, xt))
 
             all_enc_std.append(enc_std_t)
             all_enc_mean.append(enc_mean_t)
 
-            ### To be commented out: 
             # print("Prior mean", prior_mean_t.shape) # 50 by 32
             # print("Prior std", prior_std_t.shape)
             # print("Posterior mean", enc_mean_t)
             # print("Posterior std", enc_std_t)
 
-        print("MSE loss after 1 forward pass:", nll_loss)
+        reconstruction_loss = reconstruction_loss/x.size(0) # divide by batch size
+        # print("MSE loss after 1 forward pass:", reconstruction_loss)
 
-        return kld_loss, nll_loss, \
+        return kld_loss, reconstruction_loss, \
             (all_enc_mean, all_enc_std)
 
 

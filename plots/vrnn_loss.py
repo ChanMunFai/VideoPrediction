@@ -14,7 +14,7 @@ def plot_losses_VRNN(log_path):
     """
     Log files for other models may be formatted differently
     """
-    out_path = fpath.split("/")[-1]
+    out_path = log_path.split("/")[-1]
     out_path = out_path.strip(".log")
 
     losses = []
@@ -46,9 +46,13 @@ def plot_losses_VRNN(log_path):
     plt.plot(kld, label='KL Divergence')
     plt.plot(reconstruction_loss, label='Reconstruction Loss')
     plt.legend()
+    plt.yscale('log')
+
+    plt.title(f"{out_path}")
 
     plt.savefig(f"plots/VRNN/{out_path}_losses.jpg")
     plt.figure().clear()
+    plt.close('all')
 
 def plot_VRNN_together(fpaths_list):
     train_loss = []
@@ -127,5 +131,6 @@ if __name__ == "__main__":
     # for fpath in fpaths_list:
     #     plot_losses_VRNN(fpath)
 
-    plot_VRNN_together(fpaths_list)
-    # print(2250/5)
+    # plot_VRNN_together(fpaths_list)
+
+    plot_losses_VRNN('./logs/VRNN/v1/VRNN_v1_beta=1.0_150.log')

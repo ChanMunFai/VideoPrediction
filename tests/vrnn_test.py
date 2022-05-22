@@ -21,21 +21,24 @@ mse_loss = nn.MSELoss()
 for data, _ in train_loader:
     data = torch.unsqueeze(data, 2) # Batch Size X Seq Length X Channels X Height X Width
     data = (data - data.min()) / (data.max() - data.min())
-    print(torch.max(data)) # 1
-    print(torch.min(data)) # 0
+    # print(torch.max(data)) # 1
+    # print(torch.min(data)) # 0
 
     optimizer.zero_grad()
     kld_loss, nll_loss, _ = model(data)
 
     # Normalise reconstruction loss by number of pixels and sequence length
+    print("MSE before normalisation", nll_loss)
     nll_loss = nll_loss / (64 * 64 * 10)
-    print(nll_loss) # 6.2398e-05
+    print("MSE after normalisation", nll_loss) # 6.2398e-05
 
     # print out black image at all times
     black_seq = torch.full_like(data, 0)
     black_mse = mse_loss(black_seq, data)
+
+    print("MSE of black image before normalisation", black_mse * 10)
     black_mse = black_mse/(64 * 64 * 10)
-    print(black_mse) # 1.0636e-06 - low because most of MNIST is black
+    print("MSE of black image after normalisation", black_mse) # 1.0636e-06 - low because most of MNIST is black
 
     # print out white image at all times
     white_seq = torch.full_like(data, 1)

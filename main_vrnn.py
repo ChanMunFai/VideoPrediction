@@ -21,15 +21,19 @@ from data.MovingMNIST import MovingMNIST
 class VRNNTrainer:
     def __init__(self, *args, **kwargs):
         self.args = kwargs['args']
-        self.optimizer = kwargs['optimizer']
         self.writer = SummaryWriter()
-        self.model = kwargs["model"]
+
+        self.model = VRNN(self.args.xdim, self.args.hdim, self.args.zdim, self.args.nlayers).to(self.args.device)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=self.args.step_size, gamma=0.5)
 
     def train(self, train_loader):
         n_iterations = 0
         logging.info(f"Starting VRNN training for {self.args.epochs} epochs.")
 
         logging.info("Train Loss, KLD, MSE") # header for losses
+
+        steps = 0
 
         for epoch in range(self.args.epochs):
             print("Epoch:", epoch)
@@ -38,6 +42,7 @@ class VRNNTrainer:
             running_nll = 0
 
             for data, _ in tqdm(train_loader):
+                steps += 1
 
                 data = data.to(self.args.device)
                 data = torch.unsqueeze(data, 2) # Batch Size X Seq Length X Channels X Height X Width
@@ -49,7 +54,10 @@ class VRNNTrainer:
                 loss = self.args.beta * kld_loss + nll_loss
                 # loss = self.args.beta * kld_loss # ignore reconstruction loss (for debugging only)
                 loss.backward()
-                self.optimizer.step()
+
+                # Debug 
+                if steps >= self.args.warmup: 
+                    self.optimizer.step()
 
                 nn.utils.clip_grad_norm_(self.model.parameters(), self.args.clip)
 
@@ -57,11 +65,14 @@ class VRNNTrainer:
                 print(f"Loss: {loss}")
                 print(f"KLD: {kld_loss}")
                 print(f"Reconstruction Loss: {nll_loss}") # non-weighted by beta
+                print(f"Learning rate: {self.scheduler.get_last_lr()}") 
 
                 n_iterations += 1
                 running_loss += loss.item()
                 running_kld += kld_loss.item()
                 running_nll +=  nll_loss.item() # non-weighted by beta
+
+                self.scheduler.step()
 
             training_loss = running_loss/len(train_loader)
             training_kld = running_kld/len(train_loader)
@@ -81,7 +92,10 @@ class VRNNTrainer:
         logging.info("Finished training.")
 
         # Save model
-        checkpoint_name = f'saves/{self.args.version}/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_{epoch}.pth'
+        if self.args.warmup > 0: 
+            checkpoint_name = f'saves/{self.args.version}/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_step={self.args.step_size}_warmup={self.args.warmup}_{epoch}.pth'
+        else: 
+            checkpoint_name = f'saves/{self.args.version}/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_step={self.args.step_size}_{epoch}.pth'
         torch.save(self.model.state_dict(), checkpoint_name)
         print('Saved model to '+checkpoint_name)
         logging.info('Saved model to '+checkpoint_name)
@@ -90,7 +104,7 @@ class VRNNTrainer:
 parser = argparse.ArgumentParser()
 parser.add_argument('--epochs', default=1, type=int)
 parser.add_argument('--model', default="VRNN", type=str)
-parser.add_argument('--version', default="v1", type=str)
+parser.add_argument('--version', default="v2", type=str)
 
 # These arguments can only be changed if we use a model version that is not v1 or v0
 parser.add_argument('--xdim', default=64, type=int)
@@ -103,9 +117,10 @@ parser.add_argument('--beta', default=1, type=float)
 
 parser.add_argument('--save_every', default=100, type=int) # seems like not working
 
-parser.add_argument('--learning_rate', default=1e-4, type=float)
+parser.add_argument('--learning_rate', default=0.1, type=float)
 parser.add_argument('--batch_size', default=50, type=int)
-
+parser.add_argument('--step_size', default = 30, type = int)
+parser.add_argument('--warmup', default = 0, type = int)
 
 def main():
     seed = 128
@@ -119,7 +134,10 @@ def main():
         args.device = torch.device('cpu')
 
     # set up logging
-    log_fname = f'{args.model}_{args.version}_beta={args.beta}_{args.epochs}.log'
+    if args.warmup > 0: 
+        log_fname = f'{args.model}_{args.version}_beta={args.beta}_step={args.step_size}_warmup={args.warmup}_{args.epochs}.log'
+    else: 
+        log_fname = f'{args.model}_{args.version}_beta={args.beta}_step={args.step_size}_{args.epochs}.log'
     log_dir = f"logs/{args.model}/{args.version}/"
     log_path = log_dir + log_fname
     if not os.path.isdir(log_dir):
@@ -140,10 +158,17 @@ def main():
             args.zdim = 32
             args.nlayers = 1
             args.clip = 10
+        elif args.version == "v2": 
+            args.xdim = 64
+            args.hdim = 64
+            args.zdim = 32
+            args.nlayers = 1
+            args.clip = 10
         else:
             pass
 
     logging.info(args)
+    print(args)
 
     # Datasets
     train_set = MovingMNIST(root='.dataset/mnist', train=True, download=True)
@@ -154,11 +179,7 @@ def main():
 
     # Load in model
     if args.model == "VRNN":
-        VRNNTrainer
-        model = VRNN(args.xdim, args.hdim, args.zdim, args.nlayers)
-        model = model.to(args.device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-        trainer = VRNNTrainer(args=args, model=model, optimizer=optimizer)
+        trainer = VRNNTrainer(args=args)
 
     trainer.train(train_loader)
 

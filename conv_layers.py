@@ -9,6 +9,8 @@ class Conv(nn.Module):
     """
     Convolutional layers to embed x_t (shape: Number of channels X Width X Height) to
     x_t_tilde (shape: h_dim)
+
+    h_dim = 1024
     """
     def __init__(self, image_channels = 1):
         super(Conv, self).__init__()
@@ -27,6 +29,32 @@ class Conv(nn.Module):
 
     def forward(self, input):
         return self.main(input)
+
+class Conv_64(nn.Module):
+    """
+    Convolutional layers to embed x_t (shape: Number of channels X Width X Height) to
+    x_t_tilde (shape: h_dim)
+
+    h_dim = 64
+    """
+    def __init__(self, image_channels = 1):
+        super(Conv_64, self).__init__()
+        self.main = nn.Sequential(
+            nn.Conv2d(1, 16, 3, 2, bias = False),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size = 5, stride = 2),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size = 5, stride = 2),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size = 5, stride = 2),
+            nn.ReLU(),
+            nn.Flatten()
+            # shape: batch_size X 64 (input size of 64 X 64)
+        )
+
+    def forward(self, input):
+        return self.main(input)
+
 
 class UnFlatten(nn.Module):
     def forward(self, input):
@@ -63,6 +91,13 @@ def test_conv():
     output = conv_encoder(img)
     print(output.shape)
 
+def test_conv_v2():
+    img = torch.zeros(10, 1, 64, 64) # batch size X number of channels X height X width
+    print(img.shape)
+    conv_encoder = Conv_64()
+    output = conv_encoder(img)
+    print(output.shape)
+
 def test_deconv():
     h_t = torch.zeros(10, 1024) # batch size X h_dim
     z_t_tilde = torch.zeros(10, 1024)
@@ -73,5 +108,5 @@ def test_deconv():
     print(output.shape)
 
 if __name__ == "__main__":
-    test_deconv()
+    test_conv_v2()
 

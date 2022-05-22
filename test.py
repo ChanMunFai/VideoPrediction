@@ -10,14 +10,20 @@ from torch.autograd import Variable
 import matplotlib.pyplot as plt
 from PIL import Image
 from pytorch_msssim import ssim
+import numpy as np
 
-from model import VRNN
+from model_vrnn import VRNN
 from data.MovingMNIST import MovingMNIST
 
 
 model_version = "v1"
-beta = 1.0
-state_dict_path = f'saves/{model_version}/vrnn_state_dict_{model_version}_beta={beta}_149.pth'
+state_dict_path = f'saves/{model_version}/important/vrnn_state_dict_v1_beta=0.1_step=1000000_99.pth'
+
+# Deterministic model 
+# /vol/bitbucket/mc821/VideoPrediction/saves/v1/important/vrnn_state_dict_v1_beta=0.0_step=1000000_299.pth
+
+# Stochastic model 
+# /vol/bitbucket/mc821/VideoPrediction/saves/v1/important/vrnn_state_dict_v1_beta=0.1_step=1000000_99.pth
 
 if model_version == "v0":
     x_dim = 64
@@ -57,8 +63,6 @@ def test(plot = True):
             data = torch.unsqueeze(data, 2)
             data = (data - data.min()) / (data.max() - data.min())
 
-            break
-
             kld_loss, nll_loss, _ = model(data)
             mean_kld_loss += kld_loss.item()
             mean_nll_loss += nll_loss.item()
@@ -66,12 +70,12 @@ def test(plot = True):
     mean_kld_loss /= len(test_loader.dataset)
     mean_nll_loss /= len(test_loader.dataset)
 
-    print('====> Test set loss: KLD Loss = {:.4f}, NLL Loss = {:.4f} '.format(
+    print('====> Test set loss: KLD Loss = {:.8f}, NLL Loss = {:.8f} '.format(
         mean_kld_loss, mean_nll_loss))
 
 
 def plot_images(
-    print_current_frames = True,
+    print_current_frames = False,
     print_all_predictions = True,
     prediction_mode = False,
     new_prediction_mode = False,
@@ -81,14 +85,18 @@ def plot_images(
     print_current_frames: print all current frames
     print_all_predictions: print all predicted frames of current frames
     prediction mode: separate data into seen and unseen data.
+    new prediction mode: samples from prior instead of posterior 
     batch_item: example number"""
+
+    if new_prediction_mode == "True": 
+        print("This samples from the prior instead of the posterior, which is NOT recommended for VRNNs.")
 
     data, _ = next(iter(test_loader))
     data = data.to(device)
     data = torch.unsqueeze(data, 2)
     data = (data - data.min()) / (data.max() - data.min())
 
-    output_dir = f"results/images/{model_version}/beta={beta}/{batch_item}/"
+    output_dir = f"results/images/{model_version}/finetuned/stochastic/beta=0.1/"
     checkdir(output_dir)
 
     # Current Frames
@@ -105,16 +113,46 @@ def plot_images(
         with torch.no_grad():
             current_frames = data[batch_item].unsqueeze(0)
             current_predicted_frames = model.generate_frames(current_frames)
+
+            # Plot MSE 
+            mse = nn.MSELoss(reduction = 'sum') # MSE over all pixels and whole sequence 
+            avg_mse = 0
+            for i, j in zip(current_frames, current_predicted_frames.unsqueeze(0)): 
+                avg_mse += mse(i, j)
+            
+            print("Avg image MSE for each time step: ", avg_mse)
+            print("Avg pixel-wise MSE for each time step : ", avg_mse/(64*64))
+
             current_predicted_frames = torchvision.utils.make_grid(
                                         current_predicted_frames,
                                         current_predicted_frames.size(0)
                                         )
-            # print(current_predicted_frames.shape)
-            plt.imsave(
-                output_dir + f"current_frames_predicted{batch_item}.jpeg",
-                current_predicted_frames.cpu().permute(1, 2, 0).numpy()
-                )
+            
+            current_predicted_frames = current_predicted_frames.cpu().permute(1, 2, 0).numpy()
 
+            # Plot actual frames at top, predicted frames at bottom 
+            current_frames = current_frames.view(10, 1, 64, 64)
+            current_frames = torchvision.utils.make_grid(current_frames, current_frames.size(0))
+            current_frames = current_frames.cpu().permute(1, 2, 0).numpy()
+
+            combined = np.concatenate((current_frames, current_predicted_frames), axis = 0)
+            plt.imshow(combined)
+            plt.axis('off')
+            
+            # plt.imshow(current_frames)
+            # plt.imshow(current_predicted_frames)
+
+            plt.text(120, 350, f"Pixel-wise MSE {avg_mse/(64*64)}", fontsize = 10)
+
+            # plt.imsave(
+            #     output_dir + f"current_frames_predicted{batch_item}.jpeg",
+            #     current_predicted_frames
+            #     )
+
+            plt.savefig(output_dir + f"current_frames_predicted{batch_item}.jpeg")
+            plt.close('all')
+
+            
     # Predicted frames - unseen future
     if prediction_mode == True:
         with torch.no_grad():
@@ -152,6 +190,7 @@ def plot_images(
                 output_dir + f"stitched_image{batch_item}.jpeg",
                 stitched_image.cpu().permute(1, 2, 0).numpy()
                 )
+            
     # Predicted frames - unseen future
     if new_prediction_mode == True:
         with torch.no_grad():
@@ -211,7 +250,9 @@ if __name__ == "__main__":
     # test()
 
     for i in range(batch_size):
-        plot_images(batch_item = i)
+        plot_images(batch_item = i, 
+                    print_all_predictions = True, 
+                    prediction_mode= True)
 
     # calc_SSIM(
     #     true_seq_dir = "results/images/0/current_frames0.jpeg",
