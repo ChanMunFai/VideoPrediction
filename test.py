@@ -17,7 +17,7 @@ from data.MovingMNIST import MovingMNIST
 
 
 model_version = "v1"
-state_dict_path = f'saves/{model_version}/important/vrnn_state_dict_v1_beta=0.1_step=1000000_99.pth'
+state_dict_path = f'saves/{model_version}/important/vrnn_state_dict_v1_beta=0.1_step=1000000_249.pth'
 
 # Deterministic model 
 # /vol/bitbucket/mc821/VideoPrediction/saves/v1/important/vrnn_state_dict_v1_beta=0.0_step=1000000_299.pth
@@ -96,7 +96,7 @@ def plot_images(
     data = torch.unsqueeze(data, 2)
     data = (data - data.min()) / (data.max() - data.min())
 
-    output_dir = f"results/images/{model_version}/finetuned/stochastic/beta=0.1/"
+    output_dir = f"results/images/{model_version}/finetuned/stochastic/beta=0.1/350_epochs/"
     checkdir(output_dir)
 
     # Current Frames
@@ -149,7 +149,7 @@ def plot_images(
             #     current_predicted_frames
             #     )
 
-            plt.savefig(output_dir + f"current_frames_predicted{batch_item}.jpeg")
+            plt.savefig(output_dir + f"reconstructions_{batch_item}.jpeg")
             plt.close('all')
 
             
@@ -187,7 +187,7 @@ def plot_images(
             # print(stitched_image.shape)
 
             plt.imsave(
-                output_dir + f"stitched_image{batch_item}.jpeg",
+                output_dir + f"predictions_{batch_item}.jpeg",
                 stitched_image.cpu().permute(1, 2, 0).numpy()
                 )
             
