@@ -32,12 +32,13 @@ optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 mse_loss = nn.MSELoss() # by default, mean --- average over all pixels and time steps
 
 # KLD 
-mean0 = torch.zeros(1024)
-mean0point01 = torch.full_like(mean0, 0.001)
-ones = torch.full_like(mean0, 1)
+def benchmark_kld(): 
+    mean0 = torch.zeros(1024)
+    mean0point01 = torch.full_like(mean0, 0.001)
+    ones = torch.full_like(mean0, 1)
 
-kld = kld_gauss(mean0, ones, mean0point01, ones)
-print(kld)
+    kld = kld_gauss(mean0, ones, mean0point01, ones)
+    print(kld)
 
 def test_recon_loss_benchmarks(): 
     for data, _ in train_loader:

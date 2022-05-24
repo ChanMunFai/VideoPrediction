@@ -152,10 +152,12 @@ class VRNN(nn.Module):
 
         return sample
 
-    def generate_frames(self, x):
+    def reconstruct(self, x):
+        """ Generate reconstructed frames x_t_hat. 
+        """
         h = torch.zeros(self.n_layers, x.size(0), self.h_dim, device=device)
 
-        generated_frames = torch.zeros(x.size(1), 1, self.x_dim, self.x_dim, device=device)
+        reconstructed_frames = torch.zeros(x.size(1), 1, self.x_dim, self.x_dim, device=device)
 
         for t in range(x.size(1)):
             xt = x[:,t,:,:,:] # assume x has channel dimension
@@ -177,67 +179,46 @@ class VRNN(nn.Module):
             #recurrence
             _, h = self.rnn(torch.cat([xt_tilde, zt_tilde], 1).unsqueeze(0), h)
 
-            generated_frames[t] = xt_hat
+            reconstructed_frames[t] = xt_hat
 
-        return generated_frames
+        return reconstructed_frames
 
-    def predict_new(self, x):
-        """Predicts for video frames given that the model has no ground truth access to future.
+    def reconstruct_last(self, x):
+        """ Generate reconstructed frames x_t_hat for frames 6 - 10. 
 
-        Splits x into 2 sub-sequences. Model does not see the 2nd sub sequence, and predicts
-        purely using 1st sub-sequence and predicted frames.
+        May not even need this 
         """
-        seq_length = x.size(1)
-        seq_length_train = int(seq_length/2)
-        seq_length_test = seq_length - seq_length_train
-
         h = torch.zeros(self.n_layers, x.size(0), self.h_dim, device=device)
 
-        predicted_frames = torch.zeros(seq_length_test, 1, self.x_dim, self.x_dim, device=device)
-        true_future_frames = torch.zeros(seq_length_train, 1, self.x_dim, self.x_dim, device=device)
+        reconstructed_frames = torch.zeros(x.size(1), 1, self.x_dim, self.x_dim, device=device)
 
         for t in range(x.size(1)):
-            if t < seq_length_train: # seen data
-                xt = x[:,t,:,:,:]
-                xt_tilde = self.embed(xt)
+            xt = x[:,t,:,:,:] # assume x has channel dimension
 
-                #encoder and reparameterisation
-                enc_t = self.enc(torch.cat([xt_tilde, h[-1]], 1))
-                enc_mean_t = self.enc_mean(enc_t)
-                enc_std_t = self.enc_std(enc_t)
+            xt_tilde = self.embed(xt)
 
-                zt = self._reparameterized_sample(enc_mean_t, enc_std_t)
+            #encoder and reparameterisation
+            enc_t = self.enc(torch.cat([xt_tilde, h[-1]], 1)) # final layer of h
+            enc_mean_t = self.enc_mean(enc_t)
+            enc_std_t = self.enc_std(enc_t)
 
-                #decoding
-                zt_tilde = self.phi_z(zt)
-                input_latent = torch.cat([zt_tilde, h[-1]], 1)
-                xt_hat = self.dec(input_latent)
+            zt = self._reparameterized_sample(enc_mean_t, enc_std_t)
 
-            else: # unseen data
-                #prior
-                prior_t = self.prior(h[-1])
-                prior_mean_t = self.prior_mean(prior_t)
-                prior_std_t = self.prior_std(prior_t)
-
-                zt = self._reparameterized_sample(prior_mean_t, prior_std_t)
-
-                #decoding
-                zt_tilde = self.phi_z(zt)
-                input_latent = torch.cat([zt_tilde, h[-1]], 1)
-                xt_hat = self.dec(input_latent)
-
-                predicted_frames[t-seq_length_train] = xt_hat
+            #decoding
+            zt_tilde = self.phi_z(zt) # convert dim from z_dim to h_dim
+            input_latent = torch.cat([zt_tilde, h[-1]], 1)
+            xt_hat = self.dec(input_latent)
 
             #recurrence
             _, h = self.rnn(torch.cat([xt_tilde, zt_tilde], 1).unsqueeze(0), h)
 
-        return predicted_frames
+            reconstructed_frames[t] = xt_hat
+
+        return reconstructed_frames
 
     def predict(self, x):
-        """Predicts for video frames given that the model has no ground truth access to future.
-
-        Instead of using approximate posterior (z|x<t) to sample latent variable,
-        we sample z directly from its prior (as suggested by SV2P)
+        """Predicts for video frames given that the model has no 
+        ground truth access to future.
 
         Splits x into 2 sub-sequences. Model does not see the 2nd sub sequence, and predicts
         purely using 1st sub-sequence and predicted frames.
