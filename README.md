@@ -31,7 +31,7 @@ The code is adapted from [here](https://github.com/emited/VariationalRecurrentNe
 
 ## Results
 
-Reconstructed frames and predictions for the Moving MNIST dataset can be found (here)[https://github.com/ChanMunFai/VideoPrediction/tree/master/results/images/v1/stochastic/stage_c]. 
+Reconstructed frames and predictions for the Moving MNIST dataset can be found [here](https://github.com/ChanMunFai/VideoPrediction/tree/master/results/images/v1/stochastic/stage_c). 
 
 An example of a prediction is given below. 
 
