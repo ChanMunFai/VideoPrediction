@@ -7,15 +7,26 @@ This is the repository for my MSc in Artificial Intelligence individual project 
 
 ### 1. Variational Recurrent Neural Network (VRNN)
 
+The code is adapted from [here](https://github.com/emited/VariationalRecurrentNeuralNetwork) for the paper [*A Recurrent Latent Variable Model for Sequential Data*](https://arxiv.org/abs/1506.02216).
+
 Code adapted from [https://github.com/emited/VariationalRecurrentNeuralNetwork](https://github.com/emited/VariationalRecurrentNeuralNetwork)
 
-Variational RNN (VRNN), from *A Recurrent Latent Variable Model for Sequential Data*.
 
-The paper is available [here](https://arxiv.org/abs/1506.02216).
+```
+@inproceedings{NIPS2015_b618c321,
+ author = {Chung, Junyoung and Kastner, Kyle and Dinh, Laurent and Goel, Kratarth and Courville, Aaron C and Bengio, Yoshua},
+ booktitle = {Advances in Neural Information Processing Systems},
+ editor = {C. Cortes and N. Lawrence and D. Lee and M. Sugiyama and R. Garnett},
+ pages = {},
+ publisher = {Curran Associates, Inc.},
+ title = {A Recurrent Latent Variable Model for Sequential Data},
+ url = {https://proceedings.neurips.cc/paper/2015/file/b618c3210e934362ac261db280128c22-Paper.pdf},
+ volume = {28},
+ year = {2015}
+}
+```
 
 ![png](images/fig_1_vrnn.png)
-
-Latest log files are available at **logs/VRNN/v1/**. 
 
 
 
