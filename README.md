@@ -39,5 +39,18 @@ An example of a prediction is given below.
 
 The first row are ground truth frames (Frames 1 -5)  which the model has seen, the second row are ground truth frames (Frames 6 - 10) which the model does not see and is trying to predict, and the third row (Frames 6 - 10) are the predicted frames. 
 
+# Stochastic Variational Video Prediction 
 
+@article{DBLP:journals/corr/abs-1710-11252,
+  author    = {Mohammad Babaeizadeh and
+               Chelsea Finn and
+               Dumitru Erhan and
+               Roy H. Campbell and
+               Sergey Levine},
+  title     = {Stochastic Variational Video Prediction},
+  journal   = {CoRR},
+  volume    = {abs/1710.11252},
+  year      = {2017},
+  url       = {http://arxiv.org/abs/1710.11252},
+}
 
