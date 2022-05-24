@@ -17,13 +17,14 @@ from data.MovingMNIST import MovingMNIST
 
 
 model_version = "v1"
-state_dict_path = f'saves/{model_version}/important/vrnn_state_dict_v1_beta=0.1_step=1000000_249.pth'
+state_dict_path = f'saves/{model_version}/important/vrnn_state_dict_v1_beta=0.4_step=1000000_149.pth'
 
 # Deterministic model 
 # /vol/bitbucket/mc821/VideoPrediction/saves/v1/important/vrnn_state_dict_v1_beta=0.0_step=1000000_299.pth
 
 # Stochastic model 
 # /vol/bitbucket/mc821/VideoPrediction/saves/v1/important/vrnn_state_dict_v1_beta=0.1_step=1000000_99.pth
+# /vol/bitbucket/mc821/VideoPrediction/saves/v1/important/vrnn_state_dict_v1_beta=0.4_step=1000000_149.pth
 
 if model_version == "v0":
     x_dim = 64
@@ -46,9 +47,15 @@ model.load_state_dict(state_dict)
 model.to(device)
 
 # Load in dataset
-test_set = MovingMNIST(root='.dataset/mnist', train=False, download=True)
+# test_set = MovingMNIST(root='.dataset/mnist', train=False, download=True)
+# test_loader = torch.utils.data.DataLoader(
+#                 dataset=test_set,
+#                 batch_size=batch_size,
+#                 shuffle=False)
+
+train_set = MovingMNIST(root='.dataset/mnist', train=True, download=True)
 test_loader = torch.utils.data.DataLoader(
-                dataset=test_set,
+                dataset=train_set,
                 batch_size=batch_size,
                 shuffle=False)
 
@@ -67,8 +74,8 @@ def test(plot = True):
             mean_kld_loss += kld_loss.item()
             mean_nll_loss += nll_loss.item()
 
-    mean_kld_loss /= len(test_loader.dataset)
-    mean_nll_loss /= len(test_loader.dataset)
+    mean_kld_loss /= len(test_loader)
+    mean_nll_loss /= len(test_loader)
 
     print('====> Test set loss: KLD Loss = {:.8f}, NLL Loss = {:.8f} '.format(
         mean_kld_loss, mean_nll_loss))
@@ -96,7 +103,7 @@ def plot_images(
     data = torch.unsqueeze(data, 2)
     data = (data - data.min()) / (data.max() - data.min())
 
-    output_dir = f"results/images/{model_version}/finetuned/stochastic/beta=0.1/350_epochs/"
+    output_dir = f"results/images/{model_version}/finetuned/stochastic/beta=0.4/150_epochs/train/"
     checkdir(output_dir)
 
     # Current Frames
