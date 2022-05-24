@@ -82,14 +82,14 @@ class VRNNTrainer:
             logging.info(f"{training_loss:.8f}, {training_kld:.8f}, {training_nll:.8f}")
 
             if epoch % self.args.save_every == 0:
-                checkpoint_name = f'saves/{self.args.version}/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_{epoch}.pth'
+                checkpoint_name = f'saves/{self.args.version}/finetuned4/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_step={self.args.step_size}_{epoch}.pth'
                 torch.save(self.model.state_dict(), checkpoint_name)
                 print('Saved model to '+checkpoint_name)
 
         logging.info("Finished training.")
 
         # Save model
-        checkpoint_name = f'saves/{self.args.version}/finetuned2/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_step={self.args.step_size}_{epoch}.pth'
+        checkpoint_name = f'saves/{self.args.version}/finetuned4/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_step={self.args.step_size}_{epoch}.pth'
         torch.save(self.model.state_dict(), checkpoint_name)
         print('Saved model to '+checkpoint_name)
         logging.info('Saved model to '+checkpoint_name)
@@ -129,7 +129,7 @@ def main():
 
     # set up logging
     log_fname = f'{args.model}_{args.version}_beta={args.beta}_step={args.step_size}_{args.epochs}.log'
-    log_dir = f"logs/{args.model}/{args.version}/finetuned2/"
+    log_dir = f"logs/{args.model}/{args.version}/finetuned4/"
     log_path = log_dir + log_fname
     if not os.path.isdir(log_dir):
         os.makedirs(log_dir)
@@ -168,8 +168,8 @@ def main():
                 shuffle=True)
 
     # Load in model
-    state_dict_path = "saves/v1/important/vrnn_state_dict_v1_beta=0.1_step=1000000_99.pth" 
-
+    state_dict_path = "saves/v1/important/vrnn_state_dict_v1_beta=0.5_400.pth" 
+    
     if args.model == "VRNN":
         trainer = VRNNTrainer(state_dict_path= state_dict_path, args=args)
 

@@ -33,4 +33,6 @@ warmup_steps=3000
 # python main_vrnn_custom.py --epochs=200 --beta=0.0001 --version=v1 --step_size=1000000 --learning_rate=0.001
 # python main_vrnn_custom.py --epochs=200 --beta=0.001 --version=v1 --step_size=1000000 --learning_rate=0.001
 # python main_vrnn_custom.py --epochs=200 --beta=0.01 --version=v1 --step_size=1000000 --learning_rate=0.001
-python main_vrnn_custom.py --epochs=250 --beta=0.1 --version=v1 --step_size=1000000 --learning_rate=0.001
+python main_vrnn_custom.py --epochs=150 --beta=0.4 --version=v1 --step_size=1000000 --learning_rate=0.0001
+python main_vrnn_custom.py --epochs=150 --beta=0.1 --version=v1 --step_size=1000000 --learning_rate=0.0001
+

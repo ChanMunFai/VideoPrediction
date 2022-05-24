@@ -17,7 +17,7 @@ from data.MovingMNIST import MovingMNIST
 
 
 model_version = "v1"
-state_dict_path = f'saves/{model_version}/important/vrnn_state_dict_v1_beta=0.4_step=1000000_149.pth'
+state_dict_path = f'saves/{model_version}/important/vrnn_state_dict_v1_beta=0.0_step=1000000_299.pth'
 
 # Deterministic model 
 # /vol/bitbucket/mc821/VideoPrediction/saves/v1/important/vrnn_state_dict_v1_beta=0.0_step=1000000_299.pth
@@ -103,9 +103,9 @@ def plot_images(
     data = torch.unsqueeze(data, 2)
     data = (data - data.min()) / (data.max() - data.min())
 
-    output_dir = f"results/images/{model_version}/finetuned/stochastic/beta=0.4/150_epochs/train/"
+    output_dir = f"results/images/{model_version}/finetuned/deterministic/train/"
     checkdir(output_dir)
-
+    
     # Current Frames
     if print_current_frames == True:
         current_frames = data[batch_item] # Seq Length X Num_channels X Width X Height

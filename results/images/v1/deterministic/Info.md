@@ -14,10 +14,7 @@ This has been trained in 2 stages.
 Training loss logs can be found in "/logs/VRNN/v1/important/VRNN_v1_beta=0.0_step=1000000_300.log"
 
 #### Performance on test set 
-- KLD = 6193
-- MSE = 26.07533109 
-
-** A bit buggy as to why test performance is better in terms of MSE but worse in KLD. Need to investigate**
+?? 
 
 --------------------------------------
 
