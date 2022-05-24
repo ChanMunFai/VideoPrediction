@@ -5,12 +5,9 @@ This is the repository for my MSc in Artificial Intelligence individual project 
 # Table of Contents 
    * [Variational Recurrent Neural Network(VRNN)](#ariational-Recurrent-Neural-Network)
 
-### 1. Variational Recurrent Neural Network (VRNN)
+# 1. Variational Recurrent Neural Network (VRNN)
 
 The code is adapted from [here](https://github.com/emited/VariationalRecurrentNeuralNetwork) for the paper [*A Recurrent Latent Variable Model for Sequential Data*](https://arxiv.org/abs/1506.02216).
-
-Code adapted from [https://github.com/emited/VariationalRecurrentNeuralNetwork](https://github.com/emited/VariationalRecurrentNeuralNetwork)
-
 
 ```
 @inproceedings{NIPS2015_b618c321,
@@ -26,7 +23,17 @@ Code adapted from [https://github.com/emited/VariationalRecurrentNeuralNetwork](
 }
 ```
 
+## VRNN ELBO 
+
 ![png](images/fig_1_vrnn.png)
+
+## Results
+
+Reconstructed frames and predictions for the Moving MNIST dataset can be found (here)[https://github.com/ChanMunFai/VideoPrediction/tree/master/results/images/v1/stochastic/stage_c]. 
+
+An example of a prediction is given here ![png](results/images/v1/stochastic/stage_c/train/predictions_6.jpeg).
+
+The first row are ground truth frames (Frames 1 -5)  which the model has seen, the second row are ground truth frames (Frames 6 - 10) which the model does not see and is trying to predict, and the third row (Frames 6 - 10) are the predicted frames. 
 
 
 
