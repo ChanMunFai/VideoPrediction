@@ -7,6 +7,7 @@ This is the repository for my MSc in Artificial Intelligence individual project 
 # Table of Contents 
    * [Variational Recurrent Neural Network(VRNN)](#ariational-Recurrent-Neural-Network)
        * [ELBO](#VRNN-ELBO)
+       * [Training)[#Training)
        * [Results](#Results)
 
 # 1. Variational Recurrent Neural Network (VRNN)
@@ -30,6 +31,19 @@ The code is adapted from [here](https://github.com/emited/VariationalRecurrentNe
 ## VRNN ELBO 
 
 ![png](images/fig_1_vrnn.png)
+
+## Training
+
+I implemented the following training regime: 
+
+1. Trained $\beta$ = 1.0 for 150 steps 
+2. Trained $\beta$ = 0 for 300 steps
+3. Trained $\beta$ = 0.1 for 350 steps
+4. Trained $\beta$ = 0.5 for 400 steps
+3. Trained $\beta$ = 0.4 for 100 steps
+
+
+Training loss curves are given here: <insert image> 
 
 ## Results
 
