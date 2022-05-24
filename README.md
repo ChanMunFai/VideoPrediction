@@ -31,7 +31,9 @@ The code is adapted from [here](https://github.com/emited/VariationalRecurrentNe
 
 Reconstructed frames and predictions for the Moving MNIST dataset can be found (here)[https://github.com/ChanMunFai/VideoPrediction/tree/master/results/images/v1/stochastic/stage_c]. 
 
-An example of a prediction is given here ![png](results/images/v1/stochastic/stage_c/train/predictions_6.jpeg).
+An example of a prediction is given below 
+
+![png](results/images/v1/stochastic/stage_c/train/predictions_6.jpeg).
 
 The first row are ground truth frames (Frames 1 -5)  which the model has seen, the second row are ground truth frames (Frames 6 - 10) which the model does not see and is trying to predict, and the third row (Frames 6 - 10) are the predicted frames. 
 
