@@ -1,4 +1,11 @@
-### 1. Variational Recurrent Neural Network
+# Video Prediction 
+
+This is the repository for my MSc in Artificial Intelligence individual project (dissertation) at Imperial College. 
+
+# Table of Contents 
+   * [Variational Recurrent Neural Network(VRNN)](#ariational-Recurrent-Neural-Network)
+
+### 1. Variational Recurrent Neural Network (VRNN)
 
 Code adapted from [https://github.com/emited/VariationalRecurrentNeuralNetwork](https://github.com/emited/VariationalRecurrentNeuralNetwork)
 
