@@ -41,6 +41,7 @@ The first row are ground truth frames (Frames 1 -5)  which the model has seen, t
 
 # Stochastic Variational Video Prediction 
 
+```
 @article{DBLP:journals/corr/abs-1710-11252,
   author    = {Mohammad Babaeizadeh and
                Chelsea Finn and
@@ -53,4 +54,5 @@ The first row are ground truth frames (Frames 1 -5)  which the model has seen, t
   year      = {2017},
   url       = {http://arxiv.org/abs/1710.11252},
 }
+```
 
