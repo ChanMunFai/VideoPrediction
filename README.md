@@ -7,9 +7,9 @@ This is the repository for my MSc in Artificial Intelligence individual project 
 # Table of Contents 
    * [Variational Recurrent Neural Network(VRNN)](#Variational-Recurrent-Neural-Network(VRNN))
        * [ELBO](#VRNN-ELBO)
-       * [Training][#Training)
+       * [Training](#Training)
        * [Results](#Results)
-   * [Stochastic Variational Video Prediction(SV2P)](Stochastic-Variational-Video-Prediction(SV2P))
+   * [Stochastic Variational Video Prediction(SV2P)](#Stochastic-Variational-Video-Prediction(SV2P))
 
 
 # 1. Variational Recurrent Neural Network(VRNN)
