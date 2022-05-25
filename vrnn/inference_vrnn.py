@@ -196,37 +196,68 @@ def plot_images(
                 stitched_image.cpu().permute(1, 2, 0).numpy()
                 )
 
-    def reconstructions_for_later_frames(train = True):
-        """ Plot reconstructions for frames 6 - 10. 
 
-        Initialise recurrent hidden states using initial frames 1-5. 
+def calc_losses_over_time(train = True, batch_item = 0): 
+    """Calculate MSE for each predicted frame
+    over time"""
 
-        This is to investigate why the first few frames are always poorly reconstructed. 
-        """ 
+    mse = nn.MSELoss(reduction = 'mean') # pixel-wise MSE 
+    
+    if train == True: 
+        data, _ = next(iter(train_loader))
+    else: 
+        data, _ = next(iter(test_loader))
 
-        if train == True: 
-            data, _ = next(iter(train_loader))
-        else: 
-            data, _ = next(iter(test_loader))
+    data = data.to(device)
+    data = torch.unsqueeze(data, 2)
+    data = (data - data.min()) / (data.max() - data.min())
 
-        data = data.to(device)
-        data = torch.unsqueeze(data, 2)
-        data = (data - data.min()) / (data.max() - data.min())
+    mse_loss = []
 
-        if train == True: 
-            if det_or_stoch == "determistic": 
-                output_dir = f"results/images/{model_version}/{det_or_stoch}/train/"
-            elif det_or_stoch == "stochastic": 
-                output_dir = f"results/images/{model_version}/{det_or_stoch}/{stage}/train/"
-        else: 
-            if det_or_stoch == "determistic": 
-                output_dir = f"results/images/{model_version}/{det_or_stoch}/test/"
-            elif det_or_stoch == "stochastic": 
-                output_dir = f"results/images/{model_version}/{det_or_stoch}/{stage}/test/"
+    with torch.no_grad():
+        current_frames = data[batch_item].unsqueeze(0)
+        seen_frames = current_frames[0][0:5]
+        true_future_frames = current_frames[0][5:]
 
-        checkdir(output_dir)
+        future_predicted_frames = model.predict(current_frames)
 
-        pass 
+        # print(true_future_frames.shape) # (5, 1, 64, 64)
+        # print(future_predicted_frames.shape)
+
+        for i, j in zip(true_future_frames, future_predicted_frames): 
+            mse_loss.append(mse(i, j).item())
+
+    return mse_loss
+
+def plot_losses_over_time(train = True):
+    if train == True: 
+        if det_or_stoch == "determistic": 
+            output_dir = f"results/images/{model_version}/{det_or_stoch}/train/"
+        elif det_or_stoch == "stochastic": 
+            output_dir = f"results/images/{model_version}/{det_or_stoch}/{stage}/train/"
+    else: 
+        if det_or_stoch == "determistic": 
+            output_dir = f"results/images/{model_version}/{det_or_stoch}/test/"
+        elif det_or_stoch == "stochastic": 
+            output_dir = f"results/images/{model_version}/{det_or_stoch}/{stage}/test/"
+
+    combined_mse_over_time = []
+
+    for i in range(batch_size):
+        combined_mse_over_time.append(calc_losses_over_time(train = train, batch_item = i)) 
+
+    # print(combined_mse_over_time)
+
+    for j in combined_mse_over_time: 
+        plt.plot(j)
+
+    plt.title("MSE between ground truth and predicted frame over time")
+    plt.xticks(np.arange(0, 5, 1.0))
+    plt.ylabel('MSE')
+    plt.xlabel('Time')
+
+    plt.savefig(output_dir + f"loss_over_time.jpeg")
+    plt.close('all')
 
 
 def calc_SSIM(true_seq_dir, predicted_seq_dir):
@@ -248,14 +279,18 @@ def checkdir(directory):
 if __name__ == "__main__":
     # test()
 
-    for i in range(batch_size):
-        plot_images(batch_item = i, 
-                    print_reconstructions = True, 
-                    prediction = True)
+    # for i in range(batch_size):
+    #     plot_images(batch_item = i, 
+    #                 print_reconstructions = True, 
+    #                 prediction = True)
 
     # calc_SSIM(
     #     true_seq_dir = "results/images/0/current_frames0.jpeg",
     #     predicted_seq_dir = "results/images/0/current_frames_predicted0.jpeg")
+
+    # calc_losses_over_time(train = True, batch_item = 0)
+
+    plot_losses_over_time(train = True)
 
     pass
 
