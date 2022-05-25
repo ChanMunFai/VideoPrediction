@@ -5,12 +5,14 @@ Author: Chan Mun Fai
 This is the repository for my MSc in Artificial Intelligence individual project (dissertation) at Imperial College. 
 
 # Table of Contents 
-   * [Variational Recurrent Neural Network(VRNN)](#ariational-Recurrent-Neural-Network)
+   * [Variational Recurrent Neural Network(VRNN)](#Variational-Recurrent-Neural-Network(VRNN))
        * [ELBO](#VRNN-ELBO)
-       * [Training)[#Training)
+       * [Training][#Training)
        * [Results](#Results)
+   * [Stochastic Variational Video Prediction(SV2P)](Stochastic-Variational-Video-Prediction(SV2P))
 
-# 1. Variational Recurrent Neural Network (VRNN)
+
+# 1. Variational Recurrent Neural Network(VRNN)
 
 The code is adapted from [here](https://github.com/emited/VariationalRecurrentNeuralNetwork) for the paper [*A Recurrent Latent Variable Model for Sequential Data*](https://arxiv.org/abs/1506.02216).
 
@@ -42,8 +44,11 @@ I implemented the following training regime:
 4. Trained $\beta$ = 0.5 for 400 steps
 3. Trained $\beta$ = 0.4 for 100 steps
 
+Training loss curves are given below: 
 
-Training loss curves are given here: <insert image> 
+![png](plots/VRNN/kld_bestmodel.png)
+
+![png](plots/VRNN/mse_bestmodel.png)
 
 ## Results
 
@@ -55,7 +60,8 @@ An example of a prediction is given below.
 
 The first row are ground truth frames (Frames 1 -5)  which the model has seen, the second row are ground truth frames (Frames 6 - 10) which the model does not see and is trying to predict, and the third row (Frames 6 - 10) are the predicted frames. 
 
-# Stochastic Variational Video Prediction 
+# Stochastic Variational Video Prediction(SV2P) 
+The code is adapted from [here](https://github.com/kkew3/cse291g-sv2p) for the paper [`Stochastic Variational Video Prediction`](https://arxiv.org/abs/1710.11252). 
 
 ```
 @article{DBLP:journals/corr/abs-1710-11252,
