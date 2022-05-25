@@ -32,7 +32,7 @@ The code is adapted from [here](https://github.com/emited/VariationalRecurrentNe
 
 ## VRNN ELBO 
 
-![png](images/fig_1_vrnn.png)
+![png](images/vrnn/fig_1_vrnn.png)
 
 ## Training
 
@@ -78,3 +78,16 @@ The code is adapted from [here](https://github.com/kkew3/cse291g-sv2p) for the p
 }
 ```
 
+## SV2P ELBO 
+
+Graphically, the ELBO is represented as: 
+
+![png](images/sv2p/sv2p_fig.png)
+
+where the losses are as follows: 
+
+![png](images/sv2p/sv2p_elbo.png)
+
+The architecture of SV2P is given by
+
+![png](images/sv2p/sv2p_architecture.png)
