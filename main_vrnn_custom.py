@@ -15,7 +15,7 @@ from torch.autograd import Variable
 from torch.utils.tensorboard import SummaryWriter
 
 import matplotlib.pyplot as plt
-from model_vrnn import VRNN
+from vrnn.model_vrnn import VRNN
 from data.MovingMNIST import MovingMNIST
 
 class VRNNTrainer:

@@ -7,7 +7,7 @@ from torchvision import datasets, transforms
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 
-from conv_layers import Conv, Conv_64, Deconv
+from vrnn.conv_layers import Conv, Conv_64, Deconv
 
 # changing device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -51,10 +51,6 @@ class VRNN(nn.Module):
             nn.ReLU())
 
         self.dec = Deconv(h_dim = h_dim)
-        # self.dec_mean = nn.Linear(h_dim, z_dim)
-        # self.dec_std = nn.Sequential(
-        #     nn.Linear(h_dim, z_dim),
-        #     nn.Softplus())
 
         #prior - sample zt from h_t-1
         self.prior = nn.Sequential(
@@ -183,39 +179,6 @@ class VRNN(nn.Module):
 
         return reconstructed_frames
 
-    def reconstruct_last(self, x):
-        """ Generate reconstructed frames x_t_hat for frames 6 - 10. 
-
-        May not even need this 
-        """
-        h = torch.zeros(self.n_layers, x.size(0), self.h_dim, device=device)
-
-        reconstructed_frames = torch.zeros(x.size(1), 1, self.x_dim, self.x_dim, device=device)
-
-        for t in range(x.size(1)):
-            xt = x[:,t,:,:,:] # assume x has channel dimension
-
-            xt_tilde = self.embed(xt)
-
-            #encoder and reparameterisation
-            enc_t = self.enc(torch.cat([xt_tilde, h[-1]], 1)) # final layer of h
-            enc_mean_t = self.enc_mean(enc_t)
-            enc_std_t = self.enc_std(enc_t)
-
-            zt = self._reparameterized_sample(enc_mean_t, enc_std_t)
-
-            #decoding
-            zt_tilde = self.phi_z(zt) # convert dim from z_dim to h_dim
-            input_latent = torch.cat([zt_tilde, h[-1]], 1)
-            xt_hat = self.dec(input_latent)
-
-            #recurrence
-            _, h = self.rnn(torch.cat([xt_tilde, zt_tilde], 1).unsqueeze(0), h)
-
-            reconstructed_frames[t] = xt_hat
-
-        return reconstructed_frames
-
     def predict(self, x):
         """Predicts for video frames given that the model has no 
         ground truth access to future.
@@ -248,7 +211,6 @@ class VRNN(nn.Module):
                 zt_tilde = self.phi_z(zt)
                 input_latent = torch.cat([zt_tilde, h[-1]], 1)
                 xt_hat = self.dec(input_latent)
-
 
             else: # unseen data
                 xt = xt_hat # use predicted xt instead of actual xt
@@ -299,6 +261,7 @@ class VRNN(nn.Module):
             std_2.pow(2) - 1)
         return	0.5 * torch.sum(kld_element)
 
+    # Unused functions 
 
     def _nll_bernoulli(self, theta, x):
         return - torch.sum(x*torch.log(theta + EPS) + (1-x)*torch.log(1-theta-EPS))

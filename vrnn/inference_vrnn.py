@@ -12,7 +12,7 @@ from PIL import Image
 from pytorch_msssim import ssim
 import numpy as np
 
-from model_vrnn import VRNN
+from vrnn.model_vrnn import VRNN
 from data.MovingMNIST import MovingMNIST
 
 model_version = "v1"
@@ -227,7 +227,6 @@ def plot_images(
         checkdir(output_dir)
 
         pass 
-
 
 
 def calc_SSIM(true_seq_dir, predicted_seq_dir):
