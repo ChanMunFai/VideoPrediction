@@ -16,7 +16,7 @@ from vrnn.model_vrnn import VRNN
 from data.MovingMNIST import MovingMNIST
 
 model_version = "v1"
-state_dict_path = f'saves/{model_version}/important/vrnn_state_dict_v1_beta=0.0_step=1000000_299.pth'
+state_dict_path = f'saves/vrnn/{model_version}/important/vrnn_state_dict_v1_beta=0.4_step=1000000_149.pth'
 
 det_or_stoch = "stochastic"
 stage = "stage_c"
@@ -34,13 +34,13 @@ if model_version == "v0":
     h_dim = 1024
     z_dim = 32
     n_layers =  3
-    batch_size = 16
 elif model_version == "v1":
     x_dim = 64
     h_dim = 1024
     z_dim = 32
     n_layers =  1
-    batch_size = 16
+    
+batch_size = 32
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
@@ -246,10 +246,14 @@ def plot_losses_over_time(train = True):
     for i in range(batch_size):
         combined_mse_over_time.append(calc_losses_over_time(train = train, batch_item = i)) 
 
-    # print(combined_mse_over_time)
+    combined_mse_over_time = np.array(combined_mse_over_time)
 
-    for j in combined_mse_over_time: 
-        plt.plot(j)
+    avg_mse_over_time = np.mean(combined_mse_over_time, axis = 0)
+
+    plt.plot(avg_mse_over_time)
+
+    # for j in combined_mse_over_time: 
+    #     plt.plot(j)
 
     plt.title("MSE between ground truth and predicted frame over time")
     plt.xticks(np.arange(0, 5, 1.0))
