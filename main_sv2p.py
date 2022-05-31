@@ -3,8 +3,8 @@ import math
 import logging
 import argparse
 from pprint import pprint
-
 from tqdm import tqdm
+import copy
 
 import torch
 import torch.nn as nn
@@ -20,31 +20,49 @@ from sv2p.cdna import CDNA # network for CDNA
 from sv2p.model import PosteriorInferenceNet, LatentVariableSampler
 
 
-class CDNATrainer:
+class SV2PTrainer:
     """
-    CDNATrainer is only used to train the generator.
-
-    We need an argument to determine if network is stochastic (Stage 2)
-    or deterministic (Stage 1)
-
-    We can have another trainer to train all 3 Stages at once
+    state_dict_path_det: path for state dictionary for a deterministic model 
+    state_dict_path_stoc: path for state dictionary for a stochastic model 
     """
+    def __init__(self, 
+                state_dict_path_det = None, 
+                state_dict_path_stoc = None, 
+                *args, **kwargs):
 
-    def __init__(self, *args, **kwargs):
         self.args = kwargs['args']
-        self.writer = SummaryWriter("runs/sv2p")
+        self.writer = SummaryWriter(f"runs/sv2p/Stage{self.args.stage}/")
 
-        # Define model directly in trainer class
-        self.model = CDNA(in_channels = 1, cond_channels = 0,
+        assert state_dict_path_det == None or state_dict_path_stoc == None
+
+        self.det_model = CDNA(in_channels = 1, cond_channels = 0,
             n_masks = 10).to(self.args.device) # deterministic
+        if state_dict_path_det: 
+            state_dict = torch.load(state_dict_path_det, map_location = self.args.device)
+            self.det_model.load_state_dict(state_dict)
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(),
+        self.stoc_model = CDNA(in_channels = 1, cond_channels = 1,
+            n_masks = 10).to(self.args.device) # stochastic
+        if state_dict_path_stoc: 
+            state_dict = torch.load(state_dict_path_stoc, map_location = self.args.device)
+            self.stoc_model.load_state_dict(state_dict)
+        elif state_dict_path_det: 
+            self.load_stochastic_model() # load deterministic layers into stochastic model 
+        
+        if self.args.stage == 1: 
+            self.optimizer = torch.optim.Adam(self.det_model.parameters(),
                                             lr=self.args.learning_rate)
+        else: 
+            self.optimizer = torch.optim.Adam(self.stoc_model.parameters(),
+                                            lr=self.args.learning_rate)
+
         self.criterion = nn.MSELoss(reduction = 'sum').to(self.args.device) # image-wise MSE
 
         # Posterior network
         self.q_net = PosteriorInferenceNet(tbatch = 10).to(self.args.device) # figure out what tbatch is again (seqlen?)
         self.sampler = LatentVariableSampler()
+
+        ## Add in logging settings 
 
     def _split_data(self, data):
         """ Splits sequence of video frames into inputs and targets
@@ -64,30 +82,26 @@ class CDNATrainer:
         assert inputs.shape == targets.shape
         return inputs, targets
 
-
-    def train_stage1(self, train_loader):
-        """ Trains generator deterministically.
-
-        Generator (CDNA architecture) does not use any latent variables.
-
-        KL divergence is not used.
+    def train(self, train_loader):
         """
-        try:
-            self.args.stage1_epochs
-        except:
-            self.args.stage1_epochs = self.args.epochs
+        stage: 1, 2, or 3
+        """
 
-        logging.info(f"Starting SV2P training on Stage 1 for {self.args.stage1_epochs} epochs.")
-        logging.info("Train Loss") # header for losses
+        logging.info(f"Starting SV2P training on Stage {self.args.stage} for {self.args.epochs} epochs.")
+        if self.args.stage == 1 or self.args.stage == 2: 
+            logging.info("Train Loss") # header for losses
+        elif self.args.stage == 3: 
+            logging.info("Train Loss, KLD, MSE") # header for losses
 
         steps = 0
 
-        for epoch in range(self.args.stage1_epochs):
+        for epoch in range(self.args.epochs):
             print("Epoch:", epoch)
             running_loss = 0 # keep track of loss per epoch
+            running_kld = 0
+            running_recon = 0
 
             for data, _ in tqdm(train_loader):
-
                 data = data.to(self.args.device)
                 data = torch.unsqueeze(data, 2) # Batch Size X Seq Length X Channels X Height X Width
                 data = (data - data.min()) / (data.max() - data.min())
@@ -101,224 +115,142 @@ class CDNATrainer:
                 targets = targets.to(self.args.device)
 
                 hidden = None
-                loss = 0.0
+                recon_loss = 0.0
+                total_loss = 0.0
+
+                # Sample latent variable z from posterior - same z for all time steps
+                mu, sigma = self.q_net(data) 
+                z = self.sampler.sample(mu, sigma).to(self.args.device) # to be updated with global z 
+                prior_mean = torch.full_like(mu, 0)
+                prior_std = torch.full_like(sigma, 1)
+                kld_loss = self._kld_gauss(mu, sigma, prior_mean, prior_std) # 1 KLD across all time steps
 
                 # recurrent forward pass
                 for t in range(inputs.size(1)):
                     x_t = inputs[:, t, :, :, :]
                     targets_t = targets[:, t, :, :, :] # x_t+1
 
-                    # Output x_t+1 hat given x_t
-                    predictions_t, hidden, _, _ = self.model(
+                    if self.args.stage == 1: 
+                        predictions_t, hidden, _, _ = self.det_model(
                                                 x_t, hidden_states=hidden)
 
+                    else: 
+                        predictions_t, hidden, _, _ = self.stoc_model(
+                                                    inputs = x_t,
+                                                    conditions = z,
+                                                    hidden_states=hidden)
+
                     loss_t = self.criterion(predictions_t, targets_t) # compare x_t+1 hat with x_t+1
-                    print(f"Image-wise MSE at time step {t} is {loss_t}.")
-                    loss += loss_t/inputs.size(0) # divide by batch size 
+                    print(f"Image-wise MSE at time step {t} is {loss_t/inputs.size(0)}.")
+                    recon_loss += loss_t/inputs.size(0) # image-wise MSE summed over all time steps
+
+                total_loss += recon_loss
+
+                if self.args.stage == 3: 
+                    total_loss += kld_loss
 
                 self.optimizer.zero_grad()
-                loss.backward() # image-wise MSE summed over all time steps
+                total_loss.backward() 
                 self.optimizer.step()
 
-                nn.utils.clip_grad_norm_(self.model.parameters(), self.args.clip)
+                if self.args.stage == 1: 
+                    nn.utils.clip_grad_norm_(self.det_model.parameters(), self.args.clip)
+                else: 
+                    nn.utils.clip_grad_norm_(self.stoc_model.parameters(), self.args.clip)
+                    
+                running_loss += total_loss.item()
 
-                running_loss += loss.item()
-                self.writer.add_scalar('Loss/MSE',
-                                        loss,
+                self.writer.add_scalar('Loss/Total Loss',
+                                        total_loss,
+                                        steps)
+
+                if self.args.stage == 2 or self.args.stage == 3: 
+                    running_kld += kld_loss.item()
+                    running_recon +=  recon_loss.item()
+                    self.writer.add_scalar('Loss/MSE',
+                                        recon_loss,
+                                        steps)
+                    self.writer.add_scalar('Loss/KLD Loss',
+                                        kld_loss,
                                         steps)
 
                 steps += 1
 
             training_loss = running_loss/len(train_loader)
-            print(f"Epoch: {epoch} \n Train Loss: {training_loss}")
-            logging.info(f"{training_loss:.8f}")
+            training_kld = running_kld/len(train_loader)
+            training_recon = running_recon/len(train_loader)
+
+            if self.args.stage == 1: 
+                print(f"Epoch: {epoch} \n Train Loss: {training_loss}")
+                logging.info(f"{training_loss:.8f}")
+            else: 
+                print(f"Epoch: {epoch}\
+                    \n Train Loss: {training_loss}\
+                    \n KLD Loss: {training_kld}\
+                    \n Reconstruction Loss: {training_recon}")
+                logging.info(f"{training_loss:.8f}, {training_kld:.8f}, {training_recon:.8f}")
 
             if epoch % self.args.save_every == 0:
-                checkpoint_name = f'saves/cdna/cdna_state_dict_{epoch}.pth'
-                torch.save(self.model.state_dict(), checkpoint_name)
-                print('Saved model to '+checkpoint_name)
+                self._save_model(epoch)
 
         logging.info('Finished training')
         
-        checkpoint_name = f'saves/cdna/cdna_state_dict_{epoch}.pth'
-        torch.save(self.model.state_dict(), checkpoint_name)
-        logging.info('Saved model to '+checkpoint_name)
+        self._save_model(epoch)
+        logging.info('Saved model. Final Checkpoint.')
+
+    def _save_model(self, epoch): 
+        checkpoint_path = f'saves/sv2p/stage{self.args.stage}/'
+        if not os.path.isdir(checkpoint_path):
+            os.makedirs(checkpoint_path)
+
+        checkpoint_filename = f'sv2p_state_dict_{epoch}.pth'
+        checkpoint_name = checkpoint_path + checkpoint_filename
+
+        if self.args.stage == 1: 
+            torch.save(self.det_model.state_dict(), checkpoint_name)
+        else: 
+            torch.save(self.stoc_model.state_dict(), checkpoint_name)
+        print('Saved model to '+checkpoint_name)
         
     def copy_state_dict(self, model1, model2):
-        model1_state_dict = model1.state_dict()
-        model2_state_dict = model2.state_dict()
 
-        for name, param in model1_state_dict.items():
-            if name == "u_lstm.conv4.weight" or "u_lstm.conv4.bias":
-                pass
-            else:
-                # param = param.data
-                model2.state_dict()[name].copy_(param)
+        params1 = model1.named_parameters()
+        params2 = model2.named_parameters()
 
-        # Does not seem to copy exactly
-        for p1, p2 in zip(model1.parameters(), model2.parameters()):
-            print(torch.equal(p1, p2))
+        dict_params2 = dict(params2)
 
+        for name1, param1 in params1:
+            if name1 != "u_lstm.conv4.weight" and name1 != "u_lstm.conv4.bias":
+                dict_params2[name1].data.copy_(param1.data)
 
-    def train_stage2(self, train_loader):
-        """ Trains generator stochastically.
+        def test_copying():
+            f = open("param_model1.txt", "w")
+            f.write("#### Model 1 Parameters ####")
 
-        Generator (CDNA architecture) uses latent variables which are
-        sampled from the posterior at training time.
+            for name, param in model1.named_parameters():
+                f.write("\n")
+                f.write(str(name))
+                f.write(str(param))
+                f.write("\n")
 
-        KL divergence is not used.
+            f.close()
 
-        # Not yet implemented
-        - Sample latent variable for each time step
-        """
+            f = open("param_model2.txt", "w")
+            f.write("#### Model 2 Parameters ####")
 
-        # create a new model - model 2
-        # copy parameters from model 1 - everything is the same except self.conv4
-        self.model2 = CDNA(in_channels = 1, cond_channels = 1,
-            n_masks = 10).to(self.args.device) # stochastic
-        self.copy_state_dict(self.model, self.model2)
+            for name, param in model2.named_parameters():
+                f.write("\n")
+                f.write(str(name))
+                f.write(str(param))
+                f.write("\n")
+                
+            f.close()
 
-        # Reinitialise optimiser - not sure if this is right
-        self.optimizer = torch.optim.Adam(self.model2.parameters(),
-                                            lr=self.args.learning_rate)
+        # test_copying()
 
-        try:
-            self.args.stage2_epochs
-        except:
-            self.args.stage2_epochs = self.args.epochs
-
-        logging.info(f"Starting SV2P training on Stage 2 for {self.args.stage2_epochs} epochs.")
-        logging.info("Train Loss") # header for losses
-
-        for epoch in range(self.args.stage2_epochs):
-            print("Epoch:", epoch)
-            running_loss = 0 # keep track of loss per epoch
-
-            for data, _ in tqdm(train_loader):
-
-                data = data.to(self.args.device)
-                data = torch.unsqueeze(data, 2) # Batch Size X Seq Length X Channels X Height X Width
-                data = (data - data.min()) / (data.max() - data.min())
-
-                self.optimizer.zero_grad()
-                inputs, targets = self._split_data(data)
-                inputs = inputs.to(self.args.device)
-                targets = targets.to(self.args.device)
-
-                hidden = None
-                loss = 0.0
-
-                # Sample latent variable z from posterior - same z for all time steps
-                mu, sigma = self.q_net(data) # input is full sequence of video frames
-
-                z = self.sampler.sample(mu, sigma).to(self.args.device)
-
-                # recurrent forward pass
-                for t in range(inputs.size(1)):
-                    x_t = inputs[:, t, :, :, :]
-                    targets_t = targets[:, t, :, :, :] # x_t+1
-
-                    # Output x_t+1 hat given x_t
-                    predictions_t, hidden, _, _ = self.model2(
-                                                inputs = x_t,
-                                                conditions = z,
-                                                hidden_states=hidden)
-
-                    loss_t = self.criterion(predictions_t, targets_t) # compare x_t+1 hat with x_t+1
-                    loss += loss_t
-
-                total_loss = loss / inputs.size(1)
-                self.optimizer.zero_grad()
-                total_loss.backward()
-                self.optimizer.step()
-
-                # add in gradient clipping in future
-
-                running_loss += total_loss.item()
-
-            training_loss = running_loss/len(train_loader)
-            print(f"Epoch: {epoch} \n Train Loss: {training_loss}")
-            logging.info(f"{training_loss:.3f}")
-
-    def train_stage3(self, train_loader):
-
-        # Use model 2 - stochastic
-        try:
-            self.model2
-        except:
-            self.model2 = CDNA(in_channels = 1, cond_channels = 1,
-                                n_masks = 10) # stochastic
-
-        self.model2 = self.model2.to(self.args.device)
-
-        # Reinitialise optimiser - not sure if this is right
-        self.optimizer = torch.optim.Adam(self.model2.parameters(),
-                                            lr=self.args.learning_rate)
-
-        try:
-            self.args.stage3_epochs
-        except:
-            self.args.stage3_epochs = self.args.epochs
-
-        logging.info(f"SV2P training on Stage 3 for {self.args.stage3_epochs} epochs.")
-        logging.info("Train Loss") # header for losses
-
-        for epoch in range(self.args.stage3_epochs):
-            print("Epoch:", epoch)
-            running_loss = 0 # loss per epoch
-
-            for data, _ in tqdm(train_loader):
-
-                data = data.to(self.args.device)
-                data = torch.unsqueeze(data, 2) # Batch Size X Seq Length X Channels X Height X Width
-                data = (data - data.min()) / (data.max() - data.min())
-
-                self.optimizer.zero_grad()
-                inputs, targets = self._split_data(data)
-                inputs = inputs.to(self.args.device)
-                targets = targets.to(self.args.device)
-
-                hidden = None
-                loss = 0.0 # loss per batch
-
-                # Sample latent variable z from posterior - same z for all time steps
-                mu, sigma = self.q_net(data) # input is full sequence of video frames
-                z = self.sampler.sample(mu, sigma).to(self.args.device)
-                prior_mean = torch.full_like(mu, 0)
-                prior_std = torch.full_like(sigma, 1)
-
-                kld_loss = self._kld_gauss(mu, sigma, prior_mean, prior_std)
-
-                # recurrent forward pass
-                for t in range(inputs.size(1)):
-                    x_t = inputs[:, t, :, :, :]
-                    targets_t = targets[:, t, :, :, :] # x_t+1
-
-                    # Output x_t+1 hat given x_t
-                    predictions_t, hidden, _, _ = self.model2(
-                                                inputs = x_t,
-                                                conditions = z,
-                                                hidden_states=hidden)
-
-                    loss_t = self.criterion(predictions_t, targets_t) # compare x_t+1 hat with x_t+1
-                    loss += loss_t
-
-                total_loss = loss / inputs.size(1)
-                total_loss += kld_loss
-                print(total_loss) # loss normalised by seq len per batch
-                self.optimizer.zero_grad()
-                total_loss.backward()
-                self.optimizer.step()
-
-                # add in gradient clipping in future
-
-                running_loss += total_loss.item()
-
-            training_loss = running_loss/len(train_loader) # loss per epoch
-            print(f"Epoch: {epoch} \n Train Loss: {training_loss}")
-            logging.info(f"{training_loss:.3f}")
-
-
+    def load_stochastic_model(self): 
+        self.copy_state_dict(self.det_model, self.stoc_model)
+        
     def _kld_gauss(self, mean_1, std_1, mean_2, std_2):
         """Using std to compute KLD"""
 
@@ -329,22 +261,23 @@ class CDNATrainer:
             std_2.pow(2) - 1)
         return	0.5 * torch.sum(kld_element)
 
-
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--epochs', default=10, type=int)
-parser.add_argument('--stage1_epochs', default=50, type=int)
-parser.add_argument('--stage2_epochs', default=1, type=int)
-parser.add_argument('--stage3_epochs', default=1, type=int)
 
 parser.add_argument('--model', default="cdna", type=str)
-parser.add_argument('--version', default="v1", type=str)
+parser.add_argument('--stage', default=2, type=int)
 
 parser.add_argument('--save_every', default=100, type=int)
-
 parser.add_argument('--learning_rate', default=1e-4, type=float)
 parser.add_argument('--batch_size', default=52, type=int)
+parser.add_argument('--clip', default=10, type=int)
 
+# Load in model
+state_dict_path_det = None
+state_dict_path_stoc = "saves/sv2p/stage2/sv2p_state_dict_99.pth"  
+
+# "saves/sv2p/stage1/cdna_state_dict_49.pth"  # otherwise None 
+# state_dict_path_stoc = "saves/sv2p/stage2/sv2p_state_dict_99.pth" 
 
 def main():
     seed = 128
@@ -358,15 +291,21 @@ def main():
     else:
         args.device = torch.device('cpu')
 
-    # set up logging
-    log_fname = f'{args.model}_{args.version}_{args.epochs}.log'
-    log_dir = f"logs/{args.model}/{args.version}/"
+    # Set up logging
+    log_fname = f'{args.model}_stage={args.stage}_{args.epochs}.log'
+    log_dir = f"logs/{args.model}/stage{args.stage}/"
     log_path = log_dir + log_fname
     if not os.path.isdir(log_dir):
         os.makedirs(log_dir)
     logging.basicConfig(filename=log_path, filemode='w+', level=logging.INFO)
-
     logging.info(args)
+
+    if state_dict_path_det: 
+        logging.info(f"State Dictionary Path (Deterministic) is: {state_dict_path_det}")
+    elif state_dict_path_stoc: 
+        logging.info(f"State Dictionary Path (Stochastic) is: {state_dict_path_stoc}")
+    else: 
+        logging.info("Training network from scratch")
 
     # Datasets
     train_set = MovingMNIST(root='.dataset/mnist', train=True, download=True)
@@ -376,13 +315,10 @@ def main():
                 shuffle=True)
 
     if args.model == "cdna":
-        args.clip = 10 # gradient clipping 
-        trainer = CDNATrainer(args=args)
-        trainer.train_stage1(train_loader) # train CDNA only
-        # trainer.train_stage2(train_loader)
-        # trainer.train_stage3(train_loader)
-
-    logging.info("Completed training")
+        trainer = SV2PTrainer(state_dict_path_det, state_dict_path_stoc, args=args)
+        trainer.train(train_loader)
+        
+    logging.info(f"Completed {args.stage} training")
 
 if __name__ == "__main__":
     main()
