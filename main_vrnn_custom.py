@@ -19,7 +19,7 @@ from vrnn.model_vrnn import VRNN
 from data.MovingMNIST import MovingMNIST
 
 class VRNNTrainer:
-    def __init__(self, state_dict_path, *args, **kwargs):
+    def __init__(self, state_dict_path = None, *args, **kwargs):
         self.args = kwargs['args']
         self.writer = SummaryWriter()
 
@@ -27,8 +27,9 @@ class VRNNTrainer:
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=self.args.step_size, gamma=0.5)
 
-        state_dict = torch.load(state_dict_path, map_location = self.args.device)
-        self.model.load_state_dict(state_dict)
+        if state_dict: 
+            state_dict = torch.load(state_dict_path, map_location = self.args.device)
+            self.model.load_state_dict(state_dict)
 
     def train(self, train_loader):
         n_iterations = 0
@@ -89,7 +90,7 @@ class VRNNTrainer:
         logging.info("Finished training.")
 
         # Save model
-        checkpoint_name = f'saves/{self.args.version}/finetuned4/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_step={self.args.step_size}_{epoch}.pth'
+        checkpoint_name = f'saves/VRNN/{self.args.version}/{self.args.subdirectory}/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_step={self.args.step_size}_{epoch}.pth'
         torch.save(self.model.state_dict(), checkpoint_name)
         print('Saved model to '+checkpoint_name)
         logging.info('Saved model to '+checkpoint_name)
@@ -98,7 +99,8 @@ class VRNNTrainer:
 parser = argparse.ArgumentParser()
 parser.add_argument('--epochs', default=1, type=int)
 parser.add_argument('--model', default="VRNN", type=str)
-parser.add_argument('--version', default="v2", type=str)
+parser.add_argument('--version', default="v1", type=str)
+parser.add_argument('--subdirectory', default="finetuned4", type=str)
 
 # These arguments can only be changed if we use a model version that is not v1 or v0
 parser.add_argument('--xdim', default=64, type=int)
@@ -110,11 +112,11 @@ parser.add_argument('--clip', default=10, type=int)
 parser.add_argument('--beta', default=1, type=float)
 
 parser.add_argument('--save_every', default=100, type=int) 
-
 parser.add_argument('--learning_rate', default=1e-4, type=float)
 parser.add_argument('--batch_size', default=50, type=int)
 parser.add_argument('--step_size', default = 1000000, type = int)
 
+state_dict_path = "saves/v1/important/vrnn_state_dict_v1_beta=0.5_400.pth"  # None otherwise 
 
 def main():
     seed = 128
@@ -129,7 +131,7 @@ def main():
 
     # set up logging
     log_fname = f'{args.model}_{args.version}_beta={args.beta}_step={args.step_size}_{args.epochs}.log'
-    log_dir = f"logs/{args.model}/{args.version}/finetuned4/"
+    log_dir = f"logs/{args.model}/{args.version}/{args.subdirectory}/"
     log_path = log_dir + log_fname
     if not os.path.isdir(log_dir):
         os.makedirs(log_dir)
@@ -167,9 +169,6 @@ def main():
                 batch_size=args.batch_size,
                 shuffle=True)
 
-    # Load in model
-    state_dict_path = "saves/v1/important/vrnn_state_dict_v1_beta=0.5_400.pth" 
-    
     if args.model == "VRNN":
         trainer = VRNNTrainer(state_dict_path= state_dict_path, args=args)
 

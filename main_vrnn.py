@@ -21,16 +21,14 @@ from data.MovingMNIST import MovingMNIST
 class VRNNTrainer:
     def __init__(self, *args, **kwargs):
         self.args = kwargs['args']
-        self.writer = SummaryWriter()
+        self.writer = SummaryWriter("runs/VRNN")
 
         self.model = VRNN(self.args.xdim, self.args.hdim, self.args.zdim, self.args.nlayers).to(self.args.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
         self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=self.args.step_size, gamma=0.5)
 
     def train(self, train_loader):
-        n_iterations = 0
         logging.info(f"Starting VRNN training for {self.args.epochs} epochs.")
-
         logging.info("Train Loss, KLD, MSE") # header for losses
 
         steps = 0
@@ -39,7 +37,7 @@ class VRNNTrainer:
             print("Epoch:", epoch)
             running_loss = 0 # keep track of loss per epoch
             running_kld = 0
-            running_nll = 0
+            running_recon = 0
 
             for data, _ in tqdm(train_loader):
                 steps += 1
@@ -50,9 +48,8 @@ class VRNNTrainer:
 
                 #forward + backward + optimize
                 self.optimizer.zero_grad()
-                kld_loss, nll_loss, _ = self.model(data)
-                loss = self.args.beta * kld_loss + nll_loss
-                # loss = self.args.beta * kld_loss # ignore reconstruction loss (for debugging only)
+                kld_loss, recon_loss, _ = self.model(data)
+                loss = self.args.beta * kld_loss + recon_loss
                 loss.backward()
 
                 # Debug 
@@ -64,25 +61,43 @@ class VRNNTrainer:
                 # forward pass
                 print(f"Loss: {loss}")
                 print(f"KLD: {kld_loss}")
-                print(f"Reconstruction Loss: {nll_loss}") # non-weighted by beta
+                print(f"Reconstruction Loss: {recon_loss}") # non-weighted by beta
                 print(f"Learning rate: {self.scheduler.get_last_lr()}") 
 
-                n_iterations += 1
+                learning_rate = self.scheduler.get_last_lr()
+
+                # Tensorboard integration
+                self.writer.add_scalar('Loss/Train Loss',
+                                    training_loss,
+                                    steps)
+
+                self.writer.add_scalar('Loss/KLD',
+                                    kld_loss,
+                                    steps)
+
+                self.writer.add_scalar('Loss/Reconstruction Loss',
+                                    recon_loss,
+                                    steps)
+
+                self.writer.add_scalar('Learning rate',
+                                    learning_rate,
+                                    steps)
+
                 running_loss += loss.item()
                 running_kld += kld_loss.item()
-                running_nll +=  nll_loss.item() # non-weighted by beta
+                running_recon +=  recon_loss.item() # non-weighted by beta
 
                 self.scheduler.step()
 
             training_loss = running_loss/len(train_loader)
             training_kld = running_kld/len(train_loader)
-            training_nll = running_nll/len(train_loader)
+            training_recon = running_recon/len(train_loader)
 
             print(f"Epoch: {epoch}\
                     \n Train Loss: {training_loss}\
                     \n KLD Loss: {training_kld}\
-                    \n Reconstruction Loss: {training_nll}")
-            logging.info(f"{training_loss:.8f}, {training_kld:.8f}, {training_nll:.8f}")
+                    \n Reconstruction Loss: {training_recon}")
+            logging.info(f"{training_loss:.8f}, {training_kld:.8f}, {training_recon:.8f}")
 
             if epoch % self.args.save_every == 0:
                 checkpoint_name = f'saves/{self.args.version}/vrnn_state_dict_{self.args.version}_beta={self.args.beta}_{epoch}.pth'

@@ -32,7 +32,7 @@ class CDNATrainer:
 
     def __init__(self, *args, **kwargs):
         self.args = kwargs['args']
-        self.writer = SummaryWriter()
+        self.writer = SummaryWriter("runs/sv2p")
 
         # Define model directly in trainer class
         self.model = CDNA(in_channels = 1, cond_channels = 0,
@@ -40,7 +40,7 @@ class CDNATrainer:
 
         self.optimizer = torch.optim.Adam(self.model.parameters(),
                                             lr=self.args.learning_rate)
-        self.criterion = nn.MSELoss().to(self.args.device)
+        self.criterion = nn.MSELoss(reduction = 'sum').to(self.args.device) # image-wise MSE
 
         # Posterior network
         self.q_net = PosteriorInferenceNet(tbatch = 10).to(self.args.device) # figure out what tbatch is again (seqlen?)
@@ -80,6 +80,8 @@ class CDNATrainer:
         logging.info(f"Starting SV2P training on Stage 1 for {self.args.stage1_epochs} epochs.")
         logging.info("Train Loss") # header for losses
 
+        steps = 0
+
         for epoch in range(self.args.stage1_epochs):
             print("Epoch:", epoch)
             running_loss = 0 # keep track of loss per epoch
@@ -111,27 +113,37 @@ class CDNATrainer:
                                                 x_t, hidden_states=hidden)
 
                     loss_t = self.criterion(predictions_t, targets_t) # compare x_t+1 hat with x_t+1
-                    print(loss_t)
-                    loss += loss_t
+                    print(f"Image-wise MSE at time step {t} is {loss_t}.")
+                    loss += loss_t/inputs.size(0) # divide by batch size 
 
-                total_loss = loss / inputs.size(1)
                 self.optimizer.zero_grad()
-                total_loss.backward()
+                loss.backward() # image-wise MSE summed over all time steps
                 self.optimizer.step()
 
-                # Add in gradient clipping
-                running_loss += total_loss.item()
+                nn.utils.clip_grad_norm_(self.model.parameters(), self.args.clip)
+
+                running_loss += loss.item()
+                self.writer.add_scalar('Loss/MSE',
+                                        loss,
+                                        steps)
+
+                steps += 1
 
             training_loss = running_loss/len(train_loader)
             print(f"Epoch: {epoch} \n Train Loss: {training_loss}")
-            logging.info(f"{training_loss:.3f}")
+            logging.info(f"{training_loss:.8f}")
 
-            # Save model
-            checkpoint_name = f'saves/cdna_state_dict_{self.args.stage1_epochs}.pth'
-            torch.save(self.model.state_dict(), checkpoint_name)
-            print('Saved model to '+checkpoint_name)
-            logging.info('Saved model to '+checkpoint_name)
+            if epoch % self.args.save_every == 0:
+                checkpoint_name = f'saves/cdna/cdna_state_dict_{epoch}.pth'
+                torch.save(self.model.state_dict(), checkpoint_name)
+                print('Saved model to '+checkpoint_name)
 
+        logging.info('Finished training')
+        
+        checkpoint_name = f'saves/cdna/cdna_state_dict_{epoch}.pth'
+        torch.save(self.model.state_dict(), checkpoint_name)
+        logging.info('Saved model to '+checkpoint_name)
+        
     def copy_state_dict(self, model1, model2):
         model1_state_dict = model1.state_dict()
         model2_state_dict = model2.state_dict()
@@ -364,6 +376,7 @@ def main():
                 shuffle=True)
 
     if args.model == "cdna":
+        args.clip = 10 # gradient clipping 
         trainer = CDNATrainer(args=args)
         trainer.train_stage1(train_loader) # train CDNA only
         # trainer.train_stage2(train_loader)
