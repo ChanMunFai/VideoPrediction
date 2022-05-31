@@ -1,0 +1,2 @@
+INFO:root:Namespace(batch_size=52, device=device(type='cpu'), epochs=10, learning_rate=0.0001, model='cdna', save_every=100, stage1_epochs=50, stage2_epochs=1, stage3_epochs=1, version='v1')
+INFO:root:Completed training
