@@ -16,7 +16,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from sv2p.convlstm import ConvLSTMCell2d
-from sv2p.model import PosteriorInferenceNet
 
 __all__ = [
     'ConditionalUNetLSTM',

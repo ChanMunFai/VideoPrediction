@@ -17,7 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 import matplotlib.pyplot as plt
 from data.MovingMNIST import MovingMNIST
 from sv2p.cdna import CDNA # network for CDNA
-from sv2p.model import PosteriorInferenceNet, LatentVariableSampler
+from sv2p.model_sv2p import PosteriorInferenceNet, LatentVariableSampler
 from scheduler import LinearScheduler
 
 class SV2PTrainer:
