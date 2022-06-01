@@ -21,7 +21,7 @@ from data.MovingMNIST import MovingMNIST
 seed = 128
 torch.manual_seed(seed)
 
-batch_size = 16
+batch_size = 1
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 state_dict_path = 'saves/sv2p/stage3/final_beta=0.0001/sv2p_state_dict_99.pth'
@@ -83,8 +83,6 @@ def check_data():
             combined_sequence.cpu().permute(1, 2, 0).numpy()
             )
     
-    print(data_train.shape)
-    print(data_test.shape)
 
 def print_reconstructions():
     # Just use training set for now 
@@ -127,18 +125,78 @@ def print_reconstructions():
         item = torchvision.utils.make_grid(item, item.size(0))
         target = targets[i]
         target = torchvision.utils.make_grid(target, target.size(0))
+
         stitched_image = torchvision.utils.make_grid([target, item],1)
         
         plt.imsave(
             output_dir + f"reconstructions{i+1}.jpeg",
             stitched_image.cpu().permute(1, 2, 0).numpy()
             )
-
         i+= 1
+    
+def print_predictions(num_samples = 1):
+    # Just use training set for now 
+    
+    output_dir = f"results/images/sv2p/predictions/train/"
+    checkdir(output_dir)
+
+    data, _ = next(iter(train_loader))
+    data = data.to(device)
+    data = torch.unsqueeze(data, 2)
+    data = (data - data.min()) / (data.max() - data.min())
+
+    inputs, targets = split_data(data) 
+    inputs = inputs.to(device) # t = 0, ... 9
+    targets = targets.to(device) # t = 1, ... 10
+
+    seq_length = data.size(1)
+    seq_length_train = int(seq_length/2)
+    seq_length_test = seq_length - seq_length_train
+
+    # Sample latent variables from mean 
+    prior_mean = torch.zeros(batch_size, 1, 8, 8)
+    prior_std = torch.zeros(batch_size, 1, 8, 8)
+
+    for n in range(num_samples): 
+        z = sampler.sample(prior_mean, prior_std).to(device) 
+
+        hidden = None
+        predicted_frames = torch.zeros(batch_size, seq_length_test, 1, 64, 64, device=device)
+
+        with torch.no_grad():
+            for t in range(data.size(1)):
+                if t < seq_length_train: # seen data
+                    x_t = inputs[:, t, :, :, :]
+
+                    predictions_t, hidden, _, _ = model(inputs = x_t, conditions = z,
+                                                    hidden_states=hidden)
+
+                else: 
+                    x_t = predictions_t # use predicted x_t instead of actual x_t
+
+                    predictions_t, hidden, _, _ = model(inputs = x_t, conditions = z,
+                                                    hidden_states=hidden)
+
+                    predicted_frames[:, t-seq_length_train] = predictions_t
+
+        i = 0
+        for item in predicted_frames: # iterate over batch items 
+            item = torchvision.utils.make_grid(item, item.size(0))
+
+            target = targets[i][seq_length_train-1:]
+            target = torchvision.utils.make_grid(target, target.size(0))
+
+            seen_frames = inputs[i][0:seq_length_train]
+            seen_frames = torchvision.utils.make_grid(seen_frames, seen_frames.size(0))
+
+            stitched_image = torchvision.utils.make_grid([seen_frames, target, item],1)
+            
+            plt.imsave(
+                output_dir + f"predictions{i+1}_{n}.jpeg",
+                stitched_image.cpu().permute(1, 2, 0).numpy()
+                )
+            i+= 1
         
-
-
-
 def split_data(data):
     """ Splits sequence of video frames into inputs and targets
 
@@ -160,4 +218,5 @@ def split_data(data):
 
 if __name__ == "__main__":
     # check_data()
-    print_reconstructions()
+    # print_reconstructions()
+    print_predictions(num_samples=20)
