@@ -11,10 +11,9 @@ uptime
 
 cd /vol/bitbucket/mc821/VideoPrediction
 
-# num_epochs=1
+# python main_sv2p.py --stage2_epochs=1 --stage=2
 
-# python train.py
-# python main_sv2p.py --epochs $num_epochs --stage2_epochs=1
-
-# python main_sv2p_custom.py --stage2_epochs=1 --stage=2
-python main_sv2p_new.py --stage=3 --epochs=200 --learning_rate=1e-4
+# python main_sv2p.py --stage=3 --epochs=100 --learning_rate=1e-4 --beta_end=0.0001
+# python main_sv2p.py --stage=3 --epochs=100 --learning_rate=1e-4 --beta_end=0.01
+python main_sv2p.py --stage=3 --epochs=100 --learning_rate=1e-4 --beta_end=0.1
+python main_sv2p.py --stage=3 --epochs=100 --learning_rate=1e-4 --beta_end=1
