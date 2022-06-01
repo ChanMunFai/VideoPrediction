@@ -71,25 +71,19 @@ class PosteriorInferenceNet(nn.Module):
 
 class LatentVariableSampler:
     def __init__(self):
-        self.using_prior: bool = False
-        self.__prior = torch.distributions.Normal(0, 1) # assume prior is Normal
+        pass
 
-    def sample(self, mu, sigma, n: int = 1) -> torch.Tensor:
+    def sample(self, mu, sigma) -> torch.Tensor:
         """
-        If ``self.using_prior`` is True, sample from :math:`N(0, 1)`;
-        otherwise, sample from :math:`N(\\mu, \\sigma^2)`.
-        i.e. sample from prior or posterior
-
         :param mu: the Gaussian parameter tensor of shape (B, 1, 8, 8)
-        :param n: how many times to sample
-        :return: of shape (B, n, H, W)
+        :return: of shape (B, 1, 8, 8)
         """
-        if self.using_prior:
-            sample_shape = (mu_sigma.size(0), n,
-                            mu_sigma.size(2), mu_sigma.size(3))
-            z = self.__prior.sample(sample_shape)
-        else:
-            z = torch.normal(mu, sigma)
+        z = torch.normal(mu, sigma)
+        return z
+
+    def sample_prior(self, shape): 
+        prior = torch.distributions.Normal(0, 1)
+        z = prior.sample(shape)
         return z
 
 

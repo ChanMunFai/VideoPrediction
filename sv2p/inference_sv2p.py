@@ -21,7 +21,7 @@ from data.MovingMNIST import MovingMNIST
 seed = 128
 torch.manual_seed(seed)
 
-batch_size = 1
+batch_size = 2
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 state_dict_path = 'saves/sv2p/stage3/final_beta=0.0001/sv2p_state_dict_99.pth'
@@ -134,7 +134,7 @@ def print_reconstructions():
             )
         i+= 1
     
-def print_predictions(num_samples = 1):
+def print_predictions(num_samples = 1, true_posterior = False):
     # Just use training set for now 
     
     output_dir = f"results/images/sv2p/predictions/train/"
@@ -153,13 +153,14 @@ def print_predictions(num_samples = 1):
     seq_length_train = int(seq_length/2)
     seq_length_test = seq_length - seq_length_train
 
-    # Sample latent variables from mean 
-    prior_mean = torch.zeros(batch_size, 1, 8, 8)
-    prior_std = torch.zeros(batch_size, 1, 8, 8)
-
     for n in range(num_samples): 
-        z = sampler.sample(prior_mean, prior_std).to(device) 
+        z = sampler.sample_prior((batch_size, 1, 8, 8)).to(device)     # Sample latent variables from prior 
 
+        if true_posterior == True: 
+            mu, sigma = q_net(data)
+            z = sampler.sample(mu, sigma).to(device)
+
+            output_dir = f"results/images/sv2p/predictions/train/true_posterior/"
         hidden = None
         predicted_frames = torch.zeros(batch_size, seq_length_test, 1, 64, 64, device=device)
 
@@ -190,12 +191,16 @@ def print_predictions(num_samples = 1):
             seen_frames = torchvision.utils.make_grid(seen_frames, seen_frames.size(0))
 
             stitched_image = torchvision.utils.make_grid([seen_frames, target, item],1)
-            
+            new_output_dir = output_dir + f"{i+1}/"
+            checkdir(new_output_dir)
+
             plt.imsave(
-                output_dir + f"predictions{i+1}_{n}.jpeg",
+                new_output_dir + f"predictions{i+1}_{n}.jpeg",
                 stitched_image.cpu().permute(1, 2, 0).numpy()
                 )
             i+= 1
+
+        print(z[0][0][0][0])
         
 def split_data(data):
     """ Splits sequence of video frames into inputs and targets
@@ -219,4 +224,4 @@ def split_data(data):
 if __name__ == "__main__":
     # check_data()
     # print_reconstructions()
-    print_predictions(num_samples=20)
+    print_predictions(num_samples=20, true_posterior=True)
