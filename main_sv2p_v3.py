@@ -24,6 +24,16 @@ class SV2PTrainer:
     """
     state_dict_path_det: path for state dictionary for a deterministic model 
     state_dict_path_stoc: path for state dictionary for a stochastic model 
+
+    This is differently defined from the original paper. Here, 
+        Deterministic model: cond channels = 0 (saved from Stage 0) 
+        Stochastic model: cond channels = 1 (saved and used in all other Stages)
+
+    Stages (new): 
+        0: train CDNA architecture only 
+        1: update CDNA architecture to include Z from prior variables 
+        2: Use Z from posterior but do not include KL divergence
+        3. Use Z from posterior and include KL divergence 
     """
     def __init__(self, 
                 state_dict_path_det = None, 
@@ -55,13 +65,13 @@ class SV2PTrainer:
         self.q_net = PosteriorInferenceNet(tbatch = 10).to(self.args.device) # figure out what tbatch is again (seqlen?)
         self.sampler = LatentVariableSampler()
 
-        if self.args.stage == 1: 
+        if self.args.stage == 0: 
             self.optimizer = torch.optim.Adam(self.det_model.parameters(),
                                             lr=self.args.learning_rate)
-        elif self.args.stage == 2: 
+        elif self.args.stage == 1: 
             self.optimizer = torch.optim.Adam(self.stoc_model.parameters(),
                                             lr=self.args.learning_rate)
-        elif self.args.stage == 3: 
+        elif self.args.stage == 2 or self.args.stage == 3: # Stage 2 trains posterior to give good latents but is unregulated 
             self.optimizer = torch.optim.Adam(list(self.stoc_model.parameters()) + list(self.q_net.parameters()),
                                             lr=self.args.learning_rate)
 
@@ -91,10 +101,10 @@ class SV2PTrainer:
         """
 
         logging.info(f"Starting SV2P training on Stage {self.args.stage} for {self.args.epochs} epochs.")
-        if self.args.stage == 1 or self.args.stage == 2: 
+        if self.args.stage == 0: 
             logging.info("Train Loss") # header for losses
-        elif self.args.stage == 3: 
-            logging.info("Train Loss, KLD, MSE") # header for losses
+        else: 
+            logging.info("Train Loss, KLD, MSE") # only Stage 3 uses KLD but we track KLD for the rest
 
         steps = 0
 
@@ -123,18 +133,19 @@ class SV2PTrainer:
 
                 # Sample latent variable z from posterior - same z for all time steps
                 mu, sigma = self.q_net(data) 
-                z = self.sampler.sample(mu, sigma).to(self.args.device) # to be updated with global z 
+                z = self.sampler.sample(mu, sigma).to(self.args.device) # to be updated with time-variant z 
                 
                 prior_mean = torch.full_like(mu, 0).to(self.args.device)
-                prior_std = torch.full_like(sigma, 1).to(self.args.device) 
-                # prior_std = torch.eye(8).unsqueeze(0).to(self.args.device)
-                # prior_std = torch.stack([prior_std]*self.args.batch_size, dim = 0)
+                prior_std = torch.full_like(sigma, 1).to(self.args.device) # check if correct 
+
+                if self.args.stage == 1: # use z from prior 
+                    mu = prior_mean
+                    sigma = prior_std
                 
                 p = torch.distributions.Normal(mu,sigma)
                 q = torch.distributions.Normal(prior_mean,prior_std)
 
                 kld_loss = torch.distributions.kl_divergence(p, q).sum()/self.args.batch_size
-                # kld_loss = self._kld_gauss(mu, sigma, prior_mean, prior_std) # 1 KLD across all time steps
                 print("KLD Divergence is", kld_loss)
 
                 # recurrent forward pass
@@ -142,7 +153,7 @@ class SV2PTrainer:
                     x_t = inputs[:, t, :, :, :]
                     targets_t = targets[:, t, :, :, :] # x_t+1
 
-                    if self.args.stage == 1: 
+                    if self.args.stage == 0: 
                         predictions_t, hidden, _, _ = self.det_model(
                                                 x_t, hidden_states=hidden)
 
@@ -153,7 +164,6 @@ class SV2PTrainer:
                                                     hidden_states=hidden)
 
                     loss_t = self.criterion(predictions_t, targets_t) # compare x_t+1 hat with x_t+1
-                    # print(f"Image-wise MSE at time step {t} is {loss_t/inputs.size(0)}.")
                     recon_loss += loss_t/inputs.size(0) # image-wise MSE summed over all time steps
 
                 print("recon_loss", recon_loss)
@@ -169,7 +179,7 @@ class SV2PTrainer:
                 total_loss.backward() 
                 self.optimizer.step()
 
-                if self.args.stage == 1: 
+                if self.args.stage == 0: 
                     nn.utils.clip_grad_norm_(self.det_model.parameters(), self.args.clip)
                 else: 
                     nn.utils.clip_grad_norm_(self.stoc_model.parameters(), self.args.clip)
@@ -180,7 +190,7 @@ class SV2PTrainer:
                                         total_loss,
                                         steps)
 
-                if self.args.stage == 2 or self.args.stage == 3: 
+                if self.args.stage != 0: 
                     running_kld += kld_loss.item()
                     running_recon +=  recon_loss.item()
                     self.writer.add_scalar('Loss/MSE',
@@ -200,7 +210,7 @@ class SV2PTrainer:
             training_kld = running_kld/len(train_loader)
             training_recon = running_recon/len(train_loader)
 
-            if self.args.stage == 1: 
+            if self.args.stage == 0: 
                 print(f"Epoch: {epoch} \n Train Loss: {training_loss}")
                 logging.info(f"{training_loss:.8f}")
             else:
@@ -209,9 +219,9 @@ class SV2PTrainer:
                         \n KLD Loss: {training_kld}\
                         \n Reconstruction Loss: {training_recon}")
                 
-                if self.args.stage == 2:     
+                if self.args.stage != 3:     
                     logging.info(f"{training_loss:.8f}, {training_kld:.8f}, {training_recon:.8f}")
-                elif self.args.stage == 3: 
+                else: # only stage 3 needs beta values
                     logging.info(f"{training_loss:.8f}, {training_kld:.8f}, {training_recon:.8f}, {beta_value:.8f}")
 
             if epoch % self.args.save_every == 0:
@@ -223,7 +233,7 @@ class SV2PTrainer:
         logging.info('Saved model. Final Checkpoint.')
 
     def _save_model(self, epoch):
-        if self.args.stage == 1 or self.args.stage == 2:  
+        if self.args.stage != 3:  
             checkpoint_path = f'saves/sv2p/stage{self.args.stage}/'
         else: 
             checkpoint_path = f'saves/sv2p/stage{self.args.stage}/final_beta={self.args.beta_end}/'
@@ -231,15 +241,29 @@ class SV2PTrainer:
         if not os.path.isdir(checkpoint_path):
             os.makedirs(checkpoint_path)
 
-        checkpoint_filename = f'sv2p_state_dict_{epoch}.pth'
-        checkpoint_name = checkpoint_path + checkpoint_filename
-
-        if self.args.stage == 1: 
-            torch.save(self.det_model.state_dict(), checkpoint_name)
-        else: 
-            torch.save(self.stoc_model.state_dict(), checkpoint_name)
-        print('Saved model to '+checkpoint_name)
         
+        if self.args.stage == 0 or self.args.stage == 1: 
+            cdna_filename = f'sv2p_cdna_state_dict_{epoch}.pth'
+            checkpoint_name_cdna = checkpoint_path + cdna_filename
+
+            if self.args.stage == 0: 
+                torch.save(self.det_model.state_dict(), checkpoint_name_cdna)
+            elif self.args.stage == 1:
+                torch.save(self.stoc_model.state_dict(), checkpoint_name_cdna)
+
+            print('Saved model to '+checkpoint_name_cdna)
+        else: 
+            cdna_filename = f'sv2p_cdna_state_dict_{epoch}.pth'
+            posterior_filename = f'sv2p_posterior_state_dict_{epoch}.pth'
+            checkpoint_name_cdna = checkpoint_path + cdna_filename
+            checkpoint_name_posterior = checkpoint_path + posterior_filename
+
+            torch.save(self.stoc_model.state_dict(), checkpoint_name_cdna)
+            torch.save(self.q_net.state_dict(), checkpoint_name_posterior)
+
+            print('Saved CDNA model to '+checkpoint_name_cdna)
+            print('Saved Posterior model to '+checkpoint_name_posterior)
+
     def copy_state_dict(self, model1, model2):
 
         params1 = model1.named_parameters()
@@ -279,21 +303,11 @@ class SV2PTrainer:
     def load_stochastic_model(self): 
         self.copy_state_dict(self.det_model, self.stoc_model)
         
-    def _kld_gauss(self, mean_1, std_1, mean_2, std_2):
-        """Using std to compute KLD"""
-
-        EPS = torch.finfo(torch.float).eps # numerical logs
-
-        kld_element =  (2 * torch.log(std_2 + EPS) - 2 * torch.log(std_1 + EPS) +
-            (std_1.pow(2) + (mean_1 - mean_2).pow(2)) /
-            std_2.pow(2) - 1)
-        return	0.5 * torch.sum(kld_element)
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--epochs', default=10, type=int)
 
 parser.add_argument('--model', default="cdna", type=str)
-parser.add_argument('--stage', default=3, type=int)
+parser.add_argument('--stage', default=2, type=int)
 # parser.add_argument('--beta', default=1, type=float)
 
 parser.add_argument('--save_every', default=25, type=int)
@@ -305,11 +319,10 @@ parser.add_argument('--beta_start', default=0, type=float) # should not change g
 parser.add_argument('--beta_end', default=0.001, type=float)
 
 # Load in model
-state_dict_path_det = None
-state_dict_path_stoc = "saves/sv2p/stage2/sv2p_state_dict_99.pth"  
+# state_dict_path_det = "saves/sv2p/v2/stage1/finetuned/sv2p_state_dict_199.pth" 
+state_dict_path_det = None  
+state_dict_path_stoc = "saves/sv2p/stage1/sv2p_cdna_state_dict_99.pth"
 
-# "saves/sv2p/stage1/cdna_state_dict_49.pth"  # otherwise None 
-# state_dict_path_stoc = "saves/sv2p/stage2/sv2p_state_dict_99.pth" 
 
 def main():
     seed = 128
@@ -350,7 +363,6 @@ def main():
                 batch_size=args.batch_size,
                 shuffle=True)
 
-     
     training_steps = len(train_loader) * args.epochs
     beta_scheduler = LinearScheduler(training_steps, args.beta_start, args.beta_end)
 

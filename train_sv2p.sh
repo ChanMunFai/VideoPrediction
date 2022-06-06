@@ -15,5 +15,11 @@ cd /vol/bitbucket/mc821/VideoPrediction
 
 # python main_sv2p.py --stage=3 --epochs=100 --learning_rate=1e-4 --beta_end=0.0001
 # python main_sv2p.py --stage=3 --epochs=100 --learning_rate=1e-4 --beta_end=0.01
-python main_sv2p.py --stage=3 --epochs=100 --learning_rate=1e-4 --beta_end=0.1
-python main_sv2p.py --stage=3 --epochs=100 --learning_rate=1e-4 --beta_end=1
+# python main_sv2p.py --stage=3 --epochs=100 --learning_rate=1e-4 --beta_end=0.1
+# python main_sv2p.py --stage=3 --epochs=1000 --learning_rate=1e-6 --beta_end=0.001 --batch_size=52
+
+### Train posterior networks 
+# python -m sv2p.train_posterior_sv2p --epochs=50 --beta=10
+
+### Updated training 
+python main_sv2p_v3.py --stage=1 --epochs=100 --learning_rate=1e-8 
