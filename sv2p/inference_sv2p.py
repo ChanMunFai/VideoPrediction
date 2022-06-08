@@ -21,10 +21,12 @@ from data.MovingMNIST import MovingMNIST
 seed = 128
 torch.manual_seed(seed)
 
-batch_size = 2
+batch_size = 16
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-state_dict_path = 'saves/sv2p/stage3/final_beta=0.0001/sv2p_state_dict_99.pth'
+# state_dict_path = 'saves/sv2p/stage3/final_beta=0.0001/sv2p_state_dict_99.pth'
+# state_dict_path = "saves/sv2p/stage3/final_beta=0.1/sv2p_state_dict_499.pth"
+state_dict_path = "saves/sv2p/stage3/final_beta=0.001/sv2p_state_dict_550.pth"
 state_dict = torch.load(state_dict_path, map_location = device)
 
 model =  CDNA(in_channels = 1, cond_channels = 1,n_masks = 10).to(device) # stochastic
@@ -102,9 +104,15 @@ def print_reconstructions():
     predictions = []
 
     # Sample latent variable z from posterior - same z for all time steps
-    with torch.no_grad():    
-        mu, sigma = q_net(data) 
-    z = sampler.sample(mu, sigma).to(device) 
+    # with torch.no_grad():    
+    #     mu, sigma = q_net(data) 
+    # z = sampler.sample(mu, sigma).to(device) 
+
+    # Sample latent variables from prior 
+    # z = sampler.sample_prior((batch_size, 1, 8, 8)).to(device)
+
+    # Use latent variables that are very different 
+    z = torch.full((batch_size, 1, 8, 8), 1000).to(device)
 
     hidden = None
     with torch.no_grad():
@@ -223,5 +231,6 @@ def split_data(data):
 
 if __name__ == "__main__":
     # check_data()
-    # print_reconstructions()
-    print_predictions(num_samples=20, true_posterior=True)
+    print_reconstructions()
+    # print_predictions(num_samples=20, true_posterior=True)
+    # print_predictions(num_samples=20, true_posterior=False)

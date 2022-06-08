@@ -28,11 +28,6 @@ class PosteriorInferenceNet(nn.Module):
     def __init__(self, tbatch: int):
         super().__init__()
         self.features = nn.Sequential(
-            # the paper does not mention clearly how they condition on all
-            # frames in a temporal batch; I'll just use conv3d here
-            # nn.Conv3d(1, 32, (tbatch, 3, 3),
-            #           stride=(1, 2, 2), padding=(0, 1, 1)),
-
             nn.BatchNorm2d(10), # changed from 32 to 10
             nn.Conv2d(10, 64, 3, stride=2, padding=1), # changed from 32 to 10
             nn.ReLU(inplace=True),
@@ -65,7 +60,9 @@ class PosteriorInferenceNet(nn.Module):
 
         m = nn.Softplus()
         sigma = self.find_sigma(output)
-        sigma = m(sigma) # constraint sigma to positive
+        sigma = m(sigma) # constrain sigma to positive
+
+        sigma = torch.nan_to_num(sigma, nan = 1.0) # catch nan problems
 
         return mu, sigma
 
