@@ -234,7 +234,7 @@ class SV2PTrainer:
 
     def _save_model(self, epoch):
         if self.args.stage != 3:  
-            checkpoint_path = f'saves/sv2p/stage{self.args.stage}/'
+            checkpoint_path = f'saves/sv2p/stage{self.args.stage}/finetuned3/'
         else: 
             checkpoint_path = f'saves/sv2p/stage{self.args.stage}/final_beta={self.args.beta_end}/'
 
@@ -307,7 +307,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--epochs', default=10, type=int)
 
 parser.add_argument('--model', default="cdna", type=str)
-parser.add_argument('--stage', default=2, type=int)
+parser.add_argument('--stage', default=1, type=int)
 # parser.add_argument('--beta', default=1, type=float)
 
 parser.add_argument('--save_every', default=25, type=int)
@@ -319,10 +319,11 @@ parser.add_argument('--beta_start', default=0, type=float) # should not change g
 parser.add_argument('--beta_end', default=0.001, type=float)
 
 # Load in model
+# state_dict_path_det = "saves/sv2p/stage0/finetuned2/sv2p_cdna_state_dict_299.pth"
 # state_dict_path_det = "saves/sv2p/v2/stage1/finetuned/sv2p_state_dict_199.pth" 
-state_dict_path_det = None  
-state_dict_path_stoc = "saves/sv2p/stage1/sv2p_cdna_state_dict_99.pth"
-
+# state_dict_path_det = "/vol/bitbucket/mc821/VideoPrediction/saves/sv2p/stage0/finetuned3/sv2p_cdna_state_dict_25.pth"
+state_dict_path_det = None 
+state_dict_path_stoc = "saves/sv2p/stage1/finetuned3/sv2p_cdna_state_dict_99.pth" 
 
 def main():
     seed = 128
@@ -341,7 +342,7 @@ def main():
     if args.stage == 3: 
         log_dir = f"logs/{args.model}/stage{args.stage}/finalB={args.beta_end}/"
     else: 
-        log_dir = f"logs/{args.model}/stage{args.stage}/"
+        log_dir = f"logs/{args.model}/stage{args.stage}/finetuned3/"
 
     log_path = log_dir + log_fname
     if not os.path.isdir(log_dir):
