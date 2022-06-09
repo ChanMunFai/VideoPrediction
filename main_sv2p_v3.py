@@ -24,6 +24,7 @@ class SV2PTrainer:
     """
     state_dict_path_det: path for state dictionary for a deterministic model 
     state_dict_path_stoc: path for state dictionary for a stochastic model 
+    state_dict_posterior: path for state dictionary for a posterior model 
 
     This is differently defined from the original paper. Here, 
         Deterministic model: cond channels = 0 (saved from Stage 0) 
@@ -38,6 +39,7 @@ class SV2PTrainer:
     def __init__(self, 
                 state_dict_path_det = None, 
                 state_dict_path_stoc = None,
+                state_dict_path_posterior = None, 
                 beta_scheduler = None,  
                 *args, **kwargs):
 
@@ -63,7 +65,16 @@ class SV2PTrainer:
         
         # Posterior network
         self.q_net = PosteriorInferenceNet(tbatch = 10).to(self.args.device) # figure out what tbatch is again (seqlen?)
+        if state_dict_path_posterior: 
+            state_dict_posterior = torch.load(state_dict_path_posterior, map_location = self.args.device)
+            self.q_net.load_state_dict(state_dict_posterior)
+
         self.sampler = LatentVariableSampler()
+
+        if self.args.stage == 2 or self.args.stage == 3: 
+            if not state_dict_path_posterior: 
+                print("WARNING!: State dict for posterior is not loaded")
+                loggin.info("WARNING!: State dict for posterior is not loaded")
 
         if self.args.stage == 0: 
             self.optimizer = torch.optim.Adam(self.det_model.parameters(),
@@ -234,7 +245,7 @@ class SV2PTrainer:
 
     def _save_model(self, epoch):
         if self.args.stage != 3:  
-            checkpoint_path = f'saves/sv2p/stage{self.args.stage}/finetuned3/'
+            checkpoint_path = f'saves/sv2p/stage{self.args.stage}/finetuned2/'
         else: 
             checkpoint_path = f'saves/sv2p/stage{self.args.stage}/final_beta={self.args.beta_end}/'
 
@@ -323,7 +334,8 @@ parser.add_argument('--beta_end', default=0.001, type=float)
 # state_dict_path_det = "saves/sv2p/v2/stage1/finetuned/sv2p_state_dict_199.pth" 
 # state_dict_path_det = "/vol/bitbucket/mc821/VideoPrediction/saves/sv2p/stage0/finetuned3/sv2p_cdna_state_dict_25.pth"
 state_dict_path_det = None 
-state_dict_path_stoc = "saves/sv2p/stage1/finetuned3/sv2p_cdna_state_dict_99.pth" 
+state_dict_path_stoc = "saves/sv2p/stage2/finetuned1/sv2p_cdna_state_dict_99.pth" 
+state_dict_posterior = "saves/sv2p/stage2/finetuned1/sv2p_posterior_state_dict_99.pth"
 
 def main():
     seed = 128
@@ -342,7 +354,7 @@ def main():
     if args.stage == 3: 
         log_dir = f"logs/{args.model}/stage{args.stage}/finalB={args.beta_end}/"
     else: 
-        log_dir = f"logs/{args.model}/stage{args.stage}/finetuned3/"
+        log_dir = f"logs/{args.model}/stage{args.stage}/finetuned2/"
 
     log_path = log_dir + log_fname
     if not os.path.isdir(log_dir):
@@ -368,7 +380,7 @@ def main():
     beta_scheduler = LinearScheduler(training_steps, args.beta_start, args.beta_end)
 
     if args.model == "cdna":
-        trainer = SV2PTrainer(state_dict_path_det, state_dict_path_stoc, beta_scheduler, args=args)  
+        trainer = SV2PTrainer(state_dict_path_det, state_dict_path_stoc, state_dict_posterior, beta_scheduler, args=args)  
         trainer.train(train_loader)
         
     logging.info(f"Completed {args.stage} training")
