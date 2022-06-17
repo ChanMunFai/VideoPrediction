@@ -1,3 +1,4 @@
+import math 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -54,6 +55,7 @@ class CNNFastEncoder(nn.Module):
             self.out_log_var = nn.Linear(32*8*8, output_dim)
         else:
             self.out_log_var = None
+
     def forward(self, x):
         x = F.relu(self.in_conv(x))
         for hidden_layer in self.hidden_conv:
@@ -63,3 +65,49 @@ class CNNFastEncoder(nn.Module):
             return self.out_mean(x)
         mean, log_var = self.out_mean(x), self.out_log_var(x)
         return mean, log_var
+
+class SubPixelDecoder(nn.Module): 
+    """ Decodes a_t to x_t
+
+    Uses the sub-pixel network 
+
+    Code adapted from https://github.com/yjn870/ESPCN-pytorch/blob/master/models.py
+    """
+
+    def __init__(self, scale_factor, num_channels=1):
+        super(SubPixelDecoder, self).__init__()
+        self.first_part = nn.Sequential(
+            nn.Conv2d(num_channels, 64, kernel_size=5, padding=5//2),
+            nn.Tanh(),
+            nn.Conv2d(64, 32, kernel_size=3, padding=3//2),
+            nn.Tanh(),
+        )
+        self.last_part = nn.Sequential(
+            nn.Conv2d(32, num_channels * (scale_factor ** 2), kernel_size=3, padding=3 // 2),
+            nn.PixelShuffle(scale_factor)
+        )
+
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if m.in_channels == 32:
+                    nn.init.normal_(m.weight.data, mean=0.0, std=0.001)
+                    nn.init.zeros_(m.bias.data)
+                else:
+                    nn.init.normal_(m.weight.data, mean=0.0, std=math.sqrt(2/(m.out_channels*m.weight.data[0][0].numel())))
+                    nn.init.zeros_(m.bias.data)
+
+    def forward(self, x):
+        x = self.first_part(x)
+        x = self.last_part(x)
+        return x
+
+if __name__ == "__main__": 
+    # decoder = SubPixelDecoder(scale_factor=1)
+    decoder = CNNFastDecoder(input_dim=5, output_dim=64)
+    sample_a = torch.zeros(6, 10, 5) 
+    x_hat = decoder(sample_a.reshape(6*10, -1))
+    print(x_hat.shape)
+

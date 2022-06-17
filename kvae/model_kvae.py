@@ -1,139 +1,421 @@
-""" Adapted from Tensorflow implementation from https://github.com/simonkamronn/kvae/blob/master/kvae/KalmanVariationalAutoencoder.py
-"""
+"""Source: https://github.com/charlio23/bouncing-ball/blob/main/models/KalmanVAE.py """
 
+import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from torch.distributions import MultivariateNormal, Normal, Bernoulli
 
-class Decoder(nn.Module): 
-    """ Decodes a_t to x_t
+from kvae.modules import CNNFastDecoder, CNNFastEncoder
+from kvae.elbo_loss import ELBO
 
-    Uses the sub-pixel network 
+class KalmanVAE(nn.Module):
+    def __init__(self, x_dim, a_dim, z_dim, K, beta=1):
+        super(KalmanVAE, self).__init__()
+        self.x_dim = x_dim
+        self.a_dim = a_dim
+        self.z_dim = z_dim
+        self.K = K
+        self.beta = beta
+        self.encoder = CNNFastEncoder(self.x_dim, self.a_dim)
+        self.decoder = CNNFastDecoder(self.a_dim, self.x_dim)
+        
+        self.parameter_net = nn.LSTM(self.a_dim, 50, 2, batch_first=True)
+        self.alpha_out = nn.Linear(50, self.K) 
 
-    Code adapted from https://github.com/yjn870/ESPCN-pytorch/blob/master/models.py
-    """
+        # Initialise a_1 (optional)
+        self.a1 = nn.Parameter(torch.zeros(self.a_dim))
+        self.state_dyn_net = None
 
-    def __init__(self, scale_factor, num_channels=1):
-        super(ESPCN, self).__init__()
-        self.first_part = nn.Sequential(
-            nn.Conv2d(num_channels, 64, kernel_size=5, padding=5//2),
-            nn.Tanh(),
-            nn.Conv2d(64, 32, kernel_size=3, padding=3//2),
-            nn.Tanh(),
-        )
-        self.last_part = nn.Sequential(
-            nn.Conv2d(32, num_channels * (scale_factor ** 2), kernel_size=3, padding=3 // 2),
-            nn.PixelShuffle(scale_factor)
-        )
+        # Initialise p(z_1) 
+        self.mu_0 = (torch.zeros(self.z_dim)).float()
+        self.sigma_0 = (20*torch.eye(self.z_dim)).float()
 
-        self._initialize_weights()
+        # A initialised with identity matrices. B initialised from Gaussian 
+        self.A = nn.Parameter(torch.eye(self.z_dim).unsqueeze(0).repeat(self.K,1,1))
+        self.C = nn.Parameter(torch.randn(self.K, self.a_dim, self.z_dim)*0.05)
 
-    def _initialize_weights(self):
+        # Covariance matrices - fixed. Noise values obtained from paper. 
+        self.Q = 0.08*torch.eye(self.z_dim).to(float) 
+        self.R = 0.03*torch.eye(self.a_dim).to(float) 
+
+        self._init_weights()
+
+    def _init_weights(self):
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                if m.in_channels == 32:
-                    nn.init.normal_(m.weight.data, mean=0.0, std=0.001)
-                    nn.init.zeros_(m.bias.data)
-                else:
-                    nn.init.normal_(m.weight.data, mean=0.0, std=math.sqrt(2/(m.out_channels*m.weight.data[0][0].numel())))
-                    nn.init.zeros_(m.bias.data)
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_normal_(m.weight.data)
+                m.bias.data.fill_(0.1)
 
-    def forward(self, x):
-        x = self.first_part(x)
-        x = self.last_part(x)
+    def _encode(self, x):
+        """ Encodes observations x into a. 
+
+        Arguments: 
+            x: input data of shape [BS X T X NC X H X W]
+        
+        Returns: 
+            a_sample: shape [BS X T X a_dim]
+            a_mu: shape [BS X T X a_dim]
+            a_log_var: shape [BS X T X a_dim]
+        """
+
+        (a_mu, a_log_var) = self.encoder(x)
+        eps = torch.normal(mean=torch.zeros_like(a_mu)).to(x.device)
+        a_std = (a_log_var*0.5).exp()
+        sample = a_mu + a_std*eps
+        
+        return sample, a_mu, a_log_var
+
+    def _interpolate_matrices(self, obs, learn_a1 = True):
+        """ Generate weights to choose and interpolate between K operating modes. 
+
+        Dynamic parameters network generates weights that sums to 1 for each K operating mode. 
+        The weights are of dimension [BS * T X K]. For each item in a time step and in a batch, 
+        we have K different weights. 
+
+        Weights are multiplied with A and C matrices to produce At and Ct respectively.
+        
+        A and C matrices are different state transition and emission matrices for K different modes. 
+        In contrast, At and Ct are the interpolated (weighted) versions of them. 
+        
+        Parameters:
+            obs: vector a of dimension [BS X T X a_dim]
+            learn_a1: bool. If learn_a1 is True, we replace a_1 with a learned embedding. 
+                Otherwise, we generate a_1 from encoding x_1. 
+
+        Returns: 
+            A_t: interpolated state transition matrix of dimension [BS X T X z_dim X z_dim]
+            C_t: interpolated state transition matrix of dimension [BS X T X a_dim X z_dim]
+
+        """
+        (B, T, _) = obs.size()
+        
+        if learn_a1: 
+            a1 = self.a1.reshape(1,1,-1).expand(B,-1,-1)
+            joint_obs = torch.cat([a1,obs[:,:-1,:]],dim=1)
+            # print("Initialised a1 shape", a1.shape) # BS X 1 X a_dim
+            # print("joint_obs shape", joint_obs.shape) # BS X T X a_dim
+
+        else: 
+            joint_obs = obs
+            # print("joint_obs shape", joint_obs.shape) # BS X T X a_dim
+        
+        dyn_emb, self.state_dyn_net = self.parameter_net(joint_obs)
+        dyn_emb = self.alpha_out(dyn_emb.reshape(B*T,50))
+        inter_weight = dyn_emb.softmax(-1)
+        
+        # print("Weights shape", inter_weight.shape) # B*T X K 
+        # print("A shape", self.A.shape) # K X z_dim X z_dim  
+        # print("C shape", self.C.shape) # K X a_dim X z_dim  
+        
+        A_t = torch.matmul(inter_weight, self.A.reshape(self.K,-1)).reshape(B,T,self.z_dim,self.z_dim).to(float)
+        C_t = torch.matmul(inter_weight, self.C.reshape(self.K,-1)).reshape(B,T,self.a_dim,self.z_dim).to(float)
+        
+        return A_t, C_t
+
+    def filter_posterior(self, obs, A, C): 
+        """ Generates filtered posterior p(z_t|a_0:t) using Kalman filtering. 
+
+        Parameters: 
+            obs: vector a of dim [B X T X a_dim] 
+            A: (interpolated) state transition matrix of dim [B X T X z_dim X z_dim]*
+            C: (interpolated) emission matrix of dim [B X T X a_dim X z_dim]*
+
+        Returns: 
+            mu_filt: mean of p(z_t|a_0:t). Dim [T X B X z_dim]
+            sigma_filt: sigma of p(z_t|a_0:t). Dim [T X B X z_dim X z_dim]
+            mu_pred: vector containing Amu_t. Dim [T X B X z_dim]
+            mu_pred: vector containing P_t-1. Dim [T X B X z_dim X z_dim]
+
+        * We have individual matrices for each time step.  
+        """
+
+        (B, T, *_) = obs.size()
+        obs = obs.reshape(T, B, -1) # place T in first dimension for easier calculations 
+        obs = obs.unsqueeze(-1)
+
+        mu_filt = torch.zeros(T, B, self.z_dim, 1).to(obs.device).float()
+        sigma_filt = torch.zeros(T, B, self.z_dim, self.z_dim).to(obs.device).float()
+
+        mu_t = self.mu_0.expand(B,-1).unsqueeze(-1).to(float) 
+        sigma_t = self.sigma_0.expand(B,-1,-1).to(float)
+        mu_predicted = mu_t
+        sigma_predicted = sigma_t 
+
+        mu_pred = torch.zeros_like(mu_filt) # A u_t
+        sigma_pred = torch.zeros_like(sigma_filt) # P_t
+
+        A = A.to(float) 
+        C = C.to(float)
+
+        for t in range(T): 
+            mu_pred[t] = mu_predicted
+            sigma_pred[t] = sigma_predicted
+
+            ### Define Kalman Gain Matrix 
+            kalman_gain = torch.matmul(sigma_predicted, torch.transpose(C[:,t,:, :], 1, 2)) 
+            s = torch.matmul(torch.matmul(C[:,t,:, :], sigma_predicted), torch.transpose(C[:,t,:, :],1, 2)) + self.R.unsqueeze(0) 
+            kalman_gain = torch.matmul(kalman_gain, torch.inverse(s))
+        
+            ### Update mean 
+            error = obs[t] - torch.matmul(C[:,t,:, :], torch.matmul(A[:,t,:, :], mu_t)) # extra A compared to old code
+            mu_t = torch.matmul(A[:,t,:, :], mu_t) + torch.matmul(kalman_gain, error)
+
+            ### Update Variance 
+            I_ = torch.eye(self.z_dim)
+            sigma_t = torch.matmul((I_ - torch.matmul(kalman_gain, C[:,t,:, :])), sigma_predicted)
+
+            mu_filt[t] = mu_t 
+            sigma_filt[t] = sigma_t 
+
+            if t != T-1 : # no need to update predicted for last time step 
+                sigma_predicted = torch.matmul(torch.matmul(A[:,t+1,:, :], sigma_t), torch.transpose(A[:,t+1,:, :], 1, 2)) + self.Q 
+                mu_predicted = torch.matmul(A[:,t+1,:, :], mu_t)
+
+        return (mu_filt.to(float), sigma_filt.to(float)), (mu_pred.to(float), sigma_pred.to(float))
+
+        
+    def smooth_posterior(self, A, filtered, predicted): 
+        """ Generates smoothed posterior p(z_t|a_T). 
+
+        Requires outputs of `filter_posterior()` as prerequisite.  
+
+        Parameters: 
+            A: (interpolated) state transition matrix of dim [B X T X z_dim X z_dim]*
+            filtered: tuple output from `filter_posterior()`. Contains 
+                        mu_filt, sigma_filt, mu_pred, sigma_pred
+                        
+        Returns: 
+            mu_smoothed: mean of p(z_t|a_T). Dim [B X T X z_dim]
+            sigma_smoothed: sigma of p(z_t|a_T). Dim [B X T X z_dim X z_dim]
+            
+        * We have individual matrices for each time step.  
+        """
+        mu_filt, sigma_filt = filtered
+        mu_pred, sigma_pred = predicted
+
+        mu_filt = mu_filt.to(float)
+        sigma_filt= sigma_filt.to(float)
+        mu_pred = mu_pred.to(float)
+        sigma_pred = sigma_pred.to(float)
+
+        mu_z_smooth = torch.zeros_like(mu_filt).to(float)
+        sigma_z_smooth = torch.zeros_like(sigma_filt).to(float)
+        mu_z_smooth[-1] = mu_filt[-1]
+        sigma_z_smooth[-1] = sigma_filt[-1]
+
+        (T, *_) = mu_filt.size()
+        A = A.to(float)
+
+        for t in reversed(range(T-1)):
+            J = torch.matmul(sigma_filt[t], torch.matmul(torch.transpose(A[:,t+1,:,:], 1,2), torch.inverse(sigma_pred[t+1])))
+
+            mu_diff = mu_z_smooth[t+1] - mu_pred[t+1] 
+            mu_z_smooth[t] = mu_filt[t] + torch.matmul(J, mu_diff)
+
+            cov_diff = sigma_z_smooth[t+1] - sigma_pred[t+1]
+            sigma_z_smooth[t] = sigma_filt[t] + torch.matmul(torch.matmul(J, cov_diff), torch.transpose(J, 1, 2))
+        
+        mu_z_smooth = torch.transpose(mu_z_smooth, 1, 0)
+        sigma_z_smooth = torch.transpose(sigma_z_smooth, 1, 0)
+
+        return mu_z_smooth, sigma_z_smooth
+
+    def _kalman_posterior(self, obs, mask=None, filter_only=False):
+        
+        A, C = self._interpolate_matrices(obs)
+        filtered, pred = self.filter_posterior(obs, A, C)
+        smoothed = self.smooth_posterior(A, filtered, pred)
+        
+        return smoothed, A, C
+
+    def _decode(self, z):
+        x = self.decoder(z)
         return x
 
+    def _sample(self, size):
+        eps = torch.normal(mean=torch.zeros(size))
+        return self._decode(eps)
 
-class KalmanVariationalAutoencoder(object):
-    def __init__(self):
-        pass
-
-        # Define initialisiers for LGSSM variables
-        # A, B, C, Q, R 
-        # A is initialised from identity matrices 
-        # B and C randomly from Gaussians 
-
-        # p(z-1)
-        # Initial variable a_0
-
-    def encoder(self, in_channels, x_t):
-        """ Encodes image frame x_t into low-dimension space a_t
-
-        Parameters:
-            x_t: 
-                frame at time t of dim (Batch_Size X Channels X Height X Width)
-
-        Returns: 
-            a_t: 
-                latent variable at time t of dim (Batch_Size X 2)
-        """
-        encode = nn.Sequential(
-            nn.Conv2d(in_channels, 32, 3, stride = 1, padding = 'same'), # need to change this to different stride
-            nn.ReLU(), 
-            nn.Conv2d(32, 32, 3, stride = 1, padding = 'same'), 
-            nn.ReLU(),
-            nn.Conv2d(32, 32, 3, stride = 1, padding = 'same'), 
-            nn.ReLU(),
-            nn.Flatten()
-        )
-        a_t = encode(x_t)
-        linear = nn.Linear(a_t.size(1), 2)
-        a_t = linear(a_t)
-        return a_t
-
-    def alpha(self, input, state = None, K = 3): 
-        """ Dynamics Parameter Network for mixing transitions in state space model
-
-        Only implements RNN for now
-
-        Input is encoded states a. 
-
-        RNN takes in the input sequentially, and produces an output. 
-        Output at each time step is then used (along with the next a_t) to predict the next output. 
-
-        Returns: 
-            alpha: mixing vector of dimension (Batch Size X Seq Length X K)
-
-        """
-        self.rnn = nn.LSTM(2, K, batch_first = True)
-        output, state = self.rnn(input, state) 
-        print(output.shape)
-
-        # ouput is of dim (L, N, K) where L is seq length and N is batch size and K is the number of modes 
-        # Alternative implementation will be to have a separate dim for hidden state dim and embed that to K 
-
-        alpha = F.softmax(output, dim = 2)
-        return alpha, state  
-
-    def foward(self, x):
-        pass
-        # Encoder q(a|x)
-
-        # alpha RNN 
-
-        # Initialise Kalman filter 
-
-        # Get smoothed posterior over z 
-
-        # Get filtered posterior over z, over for imputation 
-
-        # Decoder 
+    def forward(self, x):
+        (B,T,C,H,W) = x.size()
+        # q(a_t|x_t)
+        a_sample, a_mu, a_log_var = self._encode(x.reshape(B*T,C,H,W))
+        a_sample = a_sample.reshape(B,T,-1)
+        a_mu = a_mu.reshape(B,T,-1)
+        a_log_var = a_log_var.reshape(B,T,-1)
         
-        # Losses 
-        # VAE loss 
-        # LGSSM []
+        # q(z|a)
+        smoothed, A_t, C_t = self._kalman_posterior(a_sample)
+        # p(x_t|a_t)
+        x_hat = self._decode(a_sample.reshape(B*T,-1)).reshape(B,T,C,H,W)
+        # ELBO
 
-def test_encoder():
-    kvae = KalmanVariationalAutoencoder()
-    x_t = torch.zeros(52, 1, 64, 64)
-    a_t = kvae.encoder(1, x_t)
-    print(a_t.shape) # 2 dim 
+        elbo_calculator = ELBO(x, x_hat, a_sample, a_mu, a_log_var, smoothed, A_t, C_t)
+        loss, kld, recon_loss = elbo_calculator.compute_loss()
 
-def test_alpha(): 
-    kvae = KalmanVariationalAutoencoder()
-    a = torch.randn(20, 10, 2) # batch size X seq len X 2
-    alpha, state = kvae.alpha(a)
-    print(alpha.shape)
+        return loss, kld, recon_loss, x_hat, a_sample
 
-# test_encoder()
-test_alpha()
+    def predict_sequence(self, input, seq_len=None):
+        (B,T,C,H,W) = input.size()
+        if seq_len is None:
+            seq_len = T
+        a_sample, _, _ = self._encode(input.reshape(B*T,C,H,W))
+        a_sample = a_sample.reshape(B,T,-1)
+        filt, A_t, C_t = self._kalman_posterior(a_sample, filter_only=True)
+        filt_mean, filt_cov = filt
+        eps = 1e-6*torch.eye(self.z_dim).to(input.device).reshape(1,self.z_dim,self.z_dim).repeat(B, 1, 1)
+        filt_z = MultivariateNormal(filt_mean[-1].squeeze(-1), scale_tril=torch.linalg.cholesky(filt_cov[-1] + eps))
+        z_sample = filt_z.sample()
+        _shape = [a_sample.size(i) if i!=1 else seq_len for i in range(len(a_sample.size()))]
+        obs_seq = torch.zeros(_shape).to(input.device)
+        _shape = [z_sample.unsqueeze(1).size(i) if i!=1 else seq_len for i in range(len(a_sample.size()))]
+        latent_seq = torch.zeros(_shape).to(input.device)
+        latent_prev = z_sample
+        obs_prev = a_sample[:,-1]
+        for t in range(seq_len):
+            # Compute alpha from a_0:t-1
+            alpha_, cell_state = self.state_dyn_net
+            dyn_emb, self.state_dyn_net = self.parameter_net(obs_prev.unsqueeze(1), (alpha_, cell_state))
+            dyn_emb = self.alpha_out(dyn_emb)
+            inter_weight = dyn_emb.softmax(-1).squeeze(1)
+            ## Compute A_t, C_t
+            A_t = torch.matmul(inter_weight, self.A.reshape(self.K,-1)).reshape(B,self.z_dim,self.z_dim)
+            C_t = torch.matmul(inter_weight, self.C.reshape(self.K,-1)).reshape(B,self.a_dim,self.z_dim)
+
+            # Calculate new z_t
+            ## Update z_t
+            latent_prev = torch.matmul(A_t, latent_prev.unsqueeze(-1)).squeeze(-1)
+            latent_seq[:,t] = latent_prev
+            # Calculate new a_t
+            obs_prev = torch.matmul(C_t, latent_prev.unsqueeze(-1)).squeeze(-1)
+            obs_seq[:,t] = obs_prev
+
+        image_seq = self._decode(obs_seq.reshape(B*seq_len,-1)).reshape(B,seq_len,C,H,W)
+
+        return image_seq, obs_seq, latent_seq
+
+
+def trial_forward(): 
+    net = KalmanVAE(x_dim=1, a_dim=2, z_dim=4, K=3)
+    
+    from torch.autograd import Variable
+    sample = Variable(torch.rand((6,10,1,32,32)), requires_grad=True) 
+    (B,T,C,H,W) = sample.size()
+
+    net.forward(sample)
+
+
+def trial_run(): 
+    # Trial run
+    net = KalmanVAE(x_dim=1, a_dim=2, z_dim=4, K=3)
+    
+    from torch.autograd import Variable
+    sample = Variable(torch.rand((6,10,1,32,32)), requires_grad=True) 
+    (B,T,C,H,W) = sample.size()
+
+    torch.autograd.set_detect_anomaly(True)
+
+    # print(net)
+    # print(net.parameter_net) 
+    # print(net.alpha_out)
+
+    ##############################
+    ######## Forward Pass ########
+    ##############################
+
+    ### Encode - p(a), sample a
+
+    a_sample, a_mu, a_log_var = net._encode(sample.reshape(B*T,C,H,W))
+    a_sample = a_sample.reshape(B,T,-1)
+    a_mu = a_mu.reshape(B,T,-1)
+    a_log_var = a_log_var.reshape(B,T,-1)
+
+    # print(a_sample.shape) # BS X Time X a_dim 
+    # print(a_mu.shape) # BS X Time X a_dim 
+    # print(a_log_var.shape) # BS X Time X a_dim 
+
+    ### Posterior - p(z|a), sample z
+
+    smoothed, A_t, C_t = net._kalman_posterior(a_sample, None)
+    mu_z_smoothed, sigma_z_smoothed = smoothed
+    # print(mu_z_smoothed.shape) # T X BS X z_dim X 1 
+    # print(sigma_z_smoothed.shape) # T X BS X z_dim X z_dim 
+    
+    # print(A_t.shape) # BS X T X z_dim X z_dim 
+    # print(C_t.shape) # BS X T X a_dim X z_dim 
+
+    smoothed_z = MultivariateNormal(mu_z_smoothed.squeeze(-1), 
+                                        scale_tril=torch.linalg.cholesky(sigma_z_smoothed))
+    z_sample = smoothed_z.sample()
+    z_sample = z_sample.reshape(B, T, -1)
+    
+    ### LGSSM - p(zt|zt-1) and p(at|zt)
+    a_pred, z_next = net._decode_latent(z_sample, A_t, C_t) 
+    a_pred = a_pred.reshape(B, T, -1)
+    z_next = z_next.reshape(B, T, -1)
+
+    # print(z_sample.shape) # BS X T X z_dim # z_t 
+    # print(a_pred.shape) # BS X T X a_dim # a_t
+    # print(z_next.shape) # BS X T X z_dim # z_t+1 hat 
+
+    ### Decode 
+
+    x_hat = net._decode(a_sample.reshape(B*T,-1)).reshape(B,T,C,H,W)
+
+    # Losses: max ELBO = log p(x_t|a_t) - [log q(a) + log q(z) - log p(a_t | z_t) - log p(z_t| z_t-1)]
+    
+    ##############################
+    ####### log p(x_t|a_t) #######
+    ##############################
+    
+    # NLL loss - can modify that to MSE 
+
+    ##############################
+    #########  log q(a)  #########
+    ##############################
+    
+    q_a = MultivariateNormal(a_mu, torch.diag_embed(torch.exp(a_log_var))) # BS X T X a_dim
+    # pdf of a given q_a 
+    loss_qa = q_a.log_prob(a_sample).mean(dim=0).sum() # summed across all time steps, averaged in batch 
+    
+    ##############################
+    #########  log q(z)  #########
+    ##############################
+
+    loss_qz = smoothed_z.log_prob(z_sample.reshape(T, B, -1)).mean(dim=1).sum()
+
+    ##############################
+    ##### log p(z_t|z_{t-1}) #####
+    ##############################
+
+    # Covariance matrices - are they learnable parameters???
+    Q = 0.08*torch.eye(4).to(float) 
+
+    mu_z1 = (torch.zeros(4)).float()
+    sigma_z1 = (20*torch.eye(4)).float()
+    decoder_z1 = MultivariateNormal(mu_z1, scale_tril=torch.linalg.cholesky(sigma_z1))
+    decoder_z = MultivariateNormal(torch.zeros(4), scale_tril=torch.linalg.cholesky(Q))
+    
+    loss_z1 = decoder_z1.log_prob(z_sample[0]).mean(dim=0)
+    loss_zt_ztminus1 = decoder_z.log_prob((z_sample[:, 1:] - z_next[:,:-1])).mean(dim=0).sum() # averaged across batches, summed over time
+
+    ##############################
+    ####### log p(a_t|z_t) #######
+    ##############################
+
+    R = 0.03*torch.eye(2).to(float) 
+    decoder_a = MultivariateNormal(torch.zeros(2), scale_tril=torch.linalg.cholesky(R))
+    
+    # print(a_sample.shape) # BS X T X a_dim
+    # print(a_pred.shape) # BS X T X a_dim
+
+    loss_a = decoder_a.log_prob((a_sample - a_pred)).mean(dim=1).sum()
+    # print(loss_a.shape)
+
+    print(loss_a)
+    
+if __name__=="__main__":
+    # trial_run()
+    trial_forward()
+
+    
