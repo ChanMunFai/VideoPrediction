@@ -1,3 +1,4 @@
+import sys
 import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal
@@ -17,6 +18,8 @@ class ELBO():
             A_t: 
             C_t: 
         """
+        self.device = x.device
+
         self.x = x
         self.x_hat = x_hat
         self.a_sample = a_sample 
@@ -32,22 +35,32 @@ class ELBO():
         self.a_dim = self.a_mu.size(2)
 
         # Fixed covariance matrices 
-        self.Q = 0.08*torch.eye(self.z_dim).to(float) 
-        self.R = 0.03*torch.eye(self.a_dim).to(float) 
+        self.Q = 0.08*torch.eye(self.z_dim).to(float).to(self.device) 
+        self.R = 0.03*torch.eye(self.a_dim).to(float).to(self.device) 
 
         # Initialise p(z_1) 
-        self.mu_z0 = (torch.zeros(self.z_dim)).float()
-        self.sigma_z0 = (20*torch.eye(self.z_dim)).float()
+        self.mu_z0 = (torch.zeros(self.z_dim)).float().to(self.device)
+        self.sigma_z0 = (20*torch.eye(self.z_dim)).float().to(self.device)
 
     def compute_loss(self): 
         """
         min -ELBO =  - log p(x_t|a_t) + log q(a) + log q(z) - log p(a_t | z_t) - log p(z_t| z_t-1)
 
+        We wish to maximise ELBO or min - ELBO (we use the latter in code because we wish to min loss).
+
+        To max ELBO, we max reconstruction quality or min MSE i.e. recon_loss. 
+        Conversely, to min -ELBO, we max recon_loss. 
+
+        Similarly, to max ELBO, we max
+        [log q(a) + log q(z) - log p(a_t| z_t) - log p(z_t| z_t-1)].
+        To min - ELBO, we min 
+        - [log q(a) + log q(z) - log p(a_t| z_t) - log p(z_t| z_t-1)]
+
         Returns: 
-            loss: - recon_loss + kld
-            elbo: - recon_loss + beta * kld
-            recon_loss: log p(x_t|a_t)
-            kld: log q(a) + log q(z) - log p(a_t | z_t) - log p(z_t| z_t-1)
+            loss: recon_loss + kld
+            elbo: recon_loss + beta * kld
+            recon_loss: -log p(x_t|a_t)
+            kld: -[log q(a) + log q(z) - log p(a_t | z_t) - log p(z_t| z_t-1)]
         """
 
         (B, T, *_) = self.x.size()
@@ -59,19 +72,20 @@ class ELBO():
         self.smoothed_z = MultivariateNormal(self.mu_z_smoothed.squeeze(-1), 
                                         scale_tril=torch.linalg.cholesky(self.sigma_z_smoothed))
         self.z_sample = self.smoothed_z.sample()
-        self.z_sample = self.z_sample.reshape(B, T, -1)
+        self.z_sample = self.z_sample.reshape(B, T, -1).to(self.device)
         loss_qz = self.compute_z_marginal_loglikelihood()
 
         ### LGSSM - p(zt|zt-1) and p(at|zt)
         a_pred, z_next = self._decode_latent(self.z_sample, self.A_t, self.C_t) 
-        self.a_pred = a_pred.reshape(B, T, -1)
-        self.z_next = z_next.reshape(B, T, -1)
+        self.a_pred = a_pred.reshape(B, T, -1).to(self.device)
+        self.z_next = z_next.reshape(B, T, -1).to(self.device)
 
         loss_z_cond = self.compute_z_conditional_loglikelihood()
         loss_a_cond = self.compute_a_conditional_loglikelihood()
 
         kld = loss_qa + loss_qz - loss_a_cond - loss_z_cond
-        loss = - recon_loss + self.beta * kld
+        # kld = -kld 
+        loss = recon_loss + self.beta * kld
 
         return loss, kld, recon_loss  
 
@@ -108,10 +122,10 @@ class ELBO():
             mse: Mean Squared Error summed across all pixels and all time steps, 
                  averaged over batch size
         """
-        calc_mse_loss = nn.MSELoss(reduction = 'sum') # MSE over all pixels
+        calc_mse_loss = nn.MSELoss(reduction = 'sum').to(self.device) # MSE over all pixels
         mse = calc_mse_loss(self.x, self.x_hat)
         mse = mse / self.x.size(0)
-        return mse 
+        return mse.to(self.device) 
 
     def compute_a_marginal_loglikelihood(self):
         """ Compute q(a). 
@@ -127,10 +141,17 @@ class ELBO():
         Returns: 
             loss_qa: float 
         """
-        q_a = MultivariateNormal(self.a_mu, torch.diag_embed(torch.exp(self.a_log_var))) # BS X T X a_dim
-        
+        a_var = torch.exp(self.a_log_var)
+        a_var = torch.clamp(a_var, min = 0) # force values to be above 0
+        try: 
+            q_a = MultivariateNormal(self.a_mu, torch.diag_embed(a_var), validate_args = False) # BS X T X a_dim
+        except: 
+            torch.save(a_var, "a_var.pt")
+            torch.save(torch.diag_embed(a_var), "diag_a_var.pt")
+            sys.exit() 
+
         # pdf of a given q_a 
-        loss_qa = q_a.log_prob(self.a_sample).mean(dim=0).sum() # summed across all time steps, averaged in batch 
+        loss_qa = q_a.log_prob(self.a_sample).mean(dim=0).sum().to(self.device) # summed across all time steps, averaged in batch 
         return loss_qa
 
     def compute_z_marginal_loglikelihood(self):
@@ -143,21 +164,21 @@ class ELBO():
         Returns: 
             loss: float 
         """
-        loss_qz = self.smoothed_z.log_prob(self.z_sample).mean(dim=0).sum()
+        loss_qz = self.smoothed_z.log_prob(self.z_sample).mean(dim=0).sum().to(self.device)
         return loss_qz
 
     def compute_z_conditional_loglikelihood(self):
         decoder_z0 = MultivariateNormal(self.mu_z0, scale_tril=torch.linalg.cholesky(self.sigma_z0))
-        decoder_z = MultivariateNormal(torch.zeros(4), scale_tril=torch.linalg.cholesky(self.Q))
+        decoder_z = MultivariateNormal(torch.zeros(4).to(self.device), scale_tril=torch.linalg.cholesky(self.Q))
         
-        loss_z0 = decoder_z0.log_prob(self.z_sample[0]).mean(dim=0)
-        loss_zt_ztminus1 = decoder_z.log_prob((self.z_sample[:, 1:] - self.z_next[:,:-1])).mean(dim=0).sum() # averaged across batches, summed over time
+        loss_z0 = decoder_z0.log_prob(self.z_sample[0]).mean(dim=0) 
+        loss_zt_ztminus1 = decoder_z.log_prob((self.z_sample[:, 1:] - self.z_next[:,:-1])).mean(dim=0).sum().to(self.device) # averaged across batches, summed over time
 
         return loss_z0 + loss_zt_ztminus1
 
     def compute_a_conditional_loglikelihood(self):
-        decoder_a = MultivariateNormal(torch.zeros(2), scale_tril=torch.linalg.cholesky(self.R))
-        loss_a = decoder_a.log_prob((self.a_sample - self.a_pred)).mean(dim=1).sum()
+        decoder_a = MultivariateNormal(torch.zeros(2).to(self.device), scale_tril=torch.linalg.cholesky(self.R))
+        loss_a = decoder_a.log_prob((self.a_sample - self.a_pred)).mean(dim=1).sum().to(self.device)
         return loss_a
 
 

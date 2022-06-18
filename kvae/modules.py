@@ -58,6 +58,7 @@ class CNNFastEncoder(nn.Module):
 
     def forward(self, x):
         x = F.relu(self.in_conv(x))
+        print(x.shape)
         for hidden_layer in self.hidden_conv:
             x = F.relu(hidden_layer(x))
         x = x.flatten(-3, -1)
@@ -65,6 +66,11 @@ class CNNFastEncoder(nn.Module):
             return self.out_mean(x)
         mean, log_var = self.out_mean(x), self.out_log_var(x)
         return mean, log_var
+
+class UnFlatten(nn.Module):
+    def forward(self, input):
+        output = input.view(input.size(0), input.size(1), 1, 1)
+        return output
 
 class SubPixelDecoder(nn.Module): 
     """ Decodes a_t to x_t
@@ -77,6 +83,7 @@ class SubPixelDecoder(nn.Module):
     def __init__(self, scale_factor, num_channels=1):
         super(SubPixelDecoder, self).__init__()
         self.first_part = nn.Sequential(
+            UnFlatten(),
             nn.Conv2d(num_channels, 64, kernel_size=5, padding=5//2),
             nn.Tanh(),
             nn.Conv2d(64, 32, kernel_size=3, padding=3//2),
@@ -104,10 +111,58 @@ class SubPixelDecoder(nn.Module):
         x = self.last_part(x)
         return x
 
+class Encoder(nn.Module):
+    def __init__(self, input_channels, output_dim):
+        super(Encoder, self).__init__()
+        self.encode = nn.Sequential(
+                    nn.Conv2d(input_channels, 32, 3, stride = 2), # need to change this to different stride
+                    nn.ReLU(), 
+                    nn.Conv2d(32, 32, 3, stride = 2), 
+                    nn.ReLU(),
+                    nn.Conv2d(32, 32, 3, stride = 2), 
+                    nn.ReLU(),
+                    nn.Flatten()
+                )
+
+        self.out_mean = nn.Linear(1568, output_dim)
+        self.out_var = nn.Sequential(
+                    nn.Linear(1568, output_dim),
+                    nn.Softplus())
+        
+    def forward(self, x):
+        B, T, NC, H, W = x.size()
+        x = x.reshape(B*T, NC, H, W)
+        a = self.encode(x)
+        mean, var = self.out_mean(a), self.out_var(a)
+        log_var = torch.log(var)
+
+        mean = mean.reshape(B, T, -1)
+        log_var = log_var.reshape(B, T, -1)
+
+        return mean, log_var
+
 if __name__ == "__main__": 
-    # decoder = SubPixelDecoder(scale_factor=1)
-    decoder = CNNFastDecoder(input_dim=5, output_dim=64)
-    sample_a = torch.zeros(6, 10, 5) 
-    x_hat = decoder(sample_a.reshape(6*10, -1))
-    print(x_hat.shape)
+    sample_data = torch.zeros(32, 10, 1, 64, 64)
+    encoder = Encoder(input_channels = 1, output_dim= 2)
+    mean, log_var = encoder(sample_data)
+    print(mean.size())
+    print(log_var.size())
+
+    # sample_a = torch.zeros(32, 10, 2)
+    # decoder = CNNFastDecoder(input_dim=2, output_dim=1)
+    # x_hat = decoder(sample_a.reshape(32*10, -1))
+    # x_hat = x_hat.reshape(32, 10, 1, 32, 32)
+    # print(x_hat.shape)
+
+    ## Redo decoder 
+    sample_a = torch.zeros(32, 10, 2).reshape(32*10, 2)
+    decoder = SubPixelDecoder(scale_factor=46, num_channels = 2)
+    x_hat = decoder(sample_a)
+    x_hat = x_hat.reshape(32, 10, -1)
+    x_hat = x_hat[:, :, :4096]
+    x_hat = x_hat.reshape(32, 10, 64, 64)
+    
+
+
+
 

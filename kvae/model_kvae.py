@@ -5,25 +5,30 @@ import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal, Normal, Bernoulli
 
-from kvae.modules import CNNFastDecoder, CNNFastEncoder
+from kvae.modules import CNNFastDecoder, CNNFastEncoder, Encoder, SubPixelDecoder
 from kvae.elbo_loss import ELBO
 
 class KalmanVAE(nn.Module):
-    def __init__(self, x_dim, a_dim, z_dim, K, beta=1):
+    def __init__(self, x_dim, a_dim, z_dim, K, device, beta=1):
         super(KalmanVAE, self).__init__()
         self.x_dim = x_dim
         self.a_dim = a_dim
         self.z_dim = z_dim
         self.K = K
         self.beta = beta
-        self.encoder = CNNFastEncoder(self.x_dim, self.a_dim)
-        self.decoder = CNNFastDecoder(self.a_dim, self.x_dim)
+
+        self.device = device 
+
+        # self.encoder = CNNFastEncoder(self.x_dim, self.a_dim)
+        # self.decoder = CNNFastDecoder(self.a_dim, self.x_dim)
+        self.encoder = Encoder(self.x_dim, self.a_dim)
+        self.decoder = SubPixelDecoder(scale_factor=46, num_channels = self.a_dim)
         
-        self.parameter_net = nn.LSTM(self.a_dim, 50, 2, batch_first=True)
-        self.alpha_out = nn.Linear(50, self.K) 
+        self.parameter_net = nn.LSTM(self.a_dim, 50, 2, batch_first=True).to(self.device)
+        self.alpha_out = nn.Linear(50, self.K).to(self.device) 
 
         # Initialise a_1 (optional)
-        self.a1 = nn.Parameter(torch.zeros(self.a_dim))
+        self.a1 = nn.Parameter(torch.zeros(self.a_dim)).to(self.device)
         self.state_dyn_net = None
 
         # Initialise p(z_1) 
@@ -31,12 +36,12 @@ class KalmanVAE(nn.Module):
         self.sigma_0 = (20*torch.eye(self.z_dim)).float()
 
         # A initialised with identity matrices. B initialised from Gaussian 
-        self.A = nn.Parameter(torch.eye(self.z_dim).unsqueeze(0).repeat(self.K,1,1))
-        self.C = nn.Parameter(torch.randn(self.K, self.a_dim, self.z_dim)*0.05)
+        self.A = nn.Parameter(torch.eye(self.z_dim).unsqueeze(0).repeat(self.K,1,1)).to(self.device)
+        self.C = nn.Parameter(torch.randn(self.K, self.a_dim, self.z_dim)*0.05).to(self.device)
 
         # Covariance matrices - fixed. Noise values obtained from paper. 
-        self.Q = 0.08*torch.eye(self.z_dim).to(float) 
-        self.R = 0.03*torch.eye(self.a_dim).to(float) 
+        self.Q = 0.08*torch.eye(self.z_dim).to(float).to(self.device) 
+        self.R = 0.03*torch.eye(self.a_dim).to(float).to(self.device) 
 
         self._init_weights()
 
@@ -136,16 +141,16 @@ class KalmanVAE(nn.Module):
         mu_filt = torch.zeros(T, B, self.z_dim, 1).to(obs.device).float()
         sigma_filt = torch.zeros(T, B, self.z_dim, self.z_dim).to(obs.device).float()
 
-        mu_t = self.mu_0.expand(B,-1).unsqueeze(-1).to(float) 
-        sigma_t = self.sigma_0.expand(B,-1,-1).to(float)
+        mu_t = self.mu_0.expand(B,-1).unsqueeze(-1).to(float).to(self.device) 
+        sigma_t = self.sigma_0.expand(B,-1,-1).to(float).to(self.device)
         mu_predicted = mu_t
         sigma_predicted = sigma_t 
 
-        mu_pred = torch.zeros_like(mu_filt) # A u_t
-        sigma_pred = torch.zeros_like(sigma_filt) # P_t
+        mu_pred = torch.zeros_like(mu_filt).to(self.device) # A u_t
+        sigma_pred = torch.zeros_like(sigma_filt).to(self.device) # P_t
 
-        A = A.to(float) 
-        C = C.to(float)
+        A = A.to(float).to(self.device) 
+        C = C.to(float).to(self.device)
 
         for t in range(T): 
             mu_pred[t] = mu_predicted
@@ -161,7 +166,7 @@ class KalmanVAE(nn.Module):
             mu_t = torch.matmul(A[:,t,:, :], mu_t) + torch.matmul(kalman_gain, error)
 
             ### Update Variance 
-            I_ = torch.eye(self.z_dim)
+            I_ = torch.eye(self.z_dim).to(self.device)
             sigma_t = torch.matmul((I_ - torch.matmul(kalman_gain, C[:,t,:, :])), sigma_predicted)
 
             mu_filt[t] = mu_t 
@@ -198,13 +203,13 @@ class KalmanVAE(nn.Module):
         mu_pred = mu_pred.to(float)
         sigma_pred = sigma_pred.to(float)
 
-        mu_z_smooth = torch.zeros_like(mu_filt).to(float)
-        sigma_z_smooth = torch.zeros_like(sigma_filt).to(float)
+        mu_z_smooth = torch.zeros_like(mu_filt).to(float).to(self.device)
+        sigma_z_smooth = torch.zeros_like(sigma_filt).to(float).to(self.device)
         mu_z_smooth[-1] = mu_filt[-1]
         sigma_z_smooth[-1] = sigma_filt[-1]
 
         (T, *_) = mu_filt.size()
-        A = A.to(float)
+        A = A.to(float).to(self.device)
 
         for t in reversed(range(T-1)):
             J = torch.matmul(sigma_filt[t], torch.matmul(torch.transpose(A[:,t+1,:,:], 1,2), torch.inverse(sigma_pred[t+1])))
@@ -215,8 +220,8 @@ class KalmanVAE(nn.Module):
             cov_diff = sigma_z_smooth[t+1] - sigma_pred[t+1]
             sigma_z_smooth[t] = sigma_filt[t] + torch.matmul(torch.matmul(J, cov_diff), torch.transpose(J, 1, 2))
         
-        mu_z_smooth = torch.transpose(mu_z_smooth, 1, 0)
-        sigma_z_smooth = torch.transpose(sigma_z_smooth, 1, 0)
+        mu_z_smooth = torch.transpose(mu_z_smooth, 1, 0).to(self.device)
+        sigma_z_smooth = torch.transpose(sigma_z_smooth, 1, 0).to(self.device)
 
         return mu_z_smooth, sigma_z_smooth
 
@@ -228,10 +233,24 @@ class KalmanVAE(nn.Module):
         
         return smoothed, A, C
 
-    def _decode(self, z):
-        x = self.decoder(z)
-        return x
+    def _decode(self, a):
+        """
+        Arguments:
+            a: Dim [B X T X a_dim]
+        
+        Returns: 
+            x_hat: [B X T X 64 X 64]
+        """
+        B, T, *_ = a.size()
+        a = a.reshape(B*T, -1)
 
+        x_hat = self.decoder(a)
+        x_hat = x_hat.reshape(B, T, -1)
+        x_hat = x_hat[:, :, :4096]
+        x_hat = x_hat.reshape(B, T, 64, 64)
+
+        return x_hat.to(self.device) 
+        
     def _sample(self, size):
         eps = torch.normal(mean=torch.zeros(size))
         return self._decode(eps)
@@ -239,7 +258,7 @@ class KalmanVAE(nn.Module):
     def forward(self, x):
         (B,T,C,H,W) = x.size()
         # q(a_t|x_t)
-        a_sample, a_mu, a_log_var = self._encode(x.reshape(B*T,C,H,W))
+        a_sample, a_mu, a_log_var = self._encode(x)
         a_sample = a_sample.reshape(B,T,-1)
         a_mu = a_mu.reshape(B,T,-1)
         a_log_var = a_log_var.reshape(B,T,-1)
@@ -247,10 +266,10 @@ class KalmanVAE(nn.Module):
         # q(z|a)
         smoothed, A_t, C_t = self._kalman_posterior(a_sample)
         # p(x_t|a_t)
-        x_hat = self._decode(a_sample.reshape(B*T,-1)).reshape(B,T,C,H,W)
+        x_hat = self._decode(a_sample).reshape(B,T,C,H,W)
         # ELBO
 
-        elbo_calculator = ELBO(x, x_hat, a_sample, a_mu, a_log_var, smoothed, A_t, C_t)
+        elbo_calculator = ELBO(x, x_hat, a_sample, a_mu, a_log_var, smoothed, A_t, C_t, self.beta)
         loss, kld, recon_loss = elbo_calculator.compute_loss()
 
         return loss, kld, recon_loss, x_hat, a_sample
@@ -310,7 +329,7 @@ def trial_run():
     net = KalmanVAE(x_dim=1, a_dim=2, z_dim=4, K=3)
     
     from torch.autograd import Variable
-    sample = Variable(torch.rand((6,10,1,32,32)), requires_grad=True) 
+    sample = Variable(torch.rand((6,10,1,64,64)), requires_grad=True) 
     (B,T,C,H,W) = sample.size()
 
     torch.autograd.set_detect_anomaly(True)
@@ -415,7 +434,7 @@ def trial_run():
     print(loss_a)
     
 if __name__=="__main__":
-    # trial_run()
-    trial_forward()
+    trial_run()
+    # trial_forward()
 
     

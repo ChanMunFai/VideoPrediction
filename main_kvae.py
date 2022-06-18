@@ -22,11 +22,16 @@ class KVAETrainer:
     def __init__(self, state_dict_path = None, *args, **kwargs):
         self.args = kwargs['args']
         self.writer = SummaryWriter()
+        print(self.args)
 
-        self.model = KalmanVAE(self.args.x_dim, self.args.a_dim, self.args.z_dim, self.args.K, self.args.beta).to(self.args.device)
+        self.model = KalmanVAE(self.args.x_dim, self.args.a_dim, self.args.z_dim, self.args.K, self.args.device, self.args.beta).to(self.args.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
     
-        if state_dict: 
+        # for name, param in self.model.named_parameters(): 
+        #     if param.requires_grad:
+        #         print(name)
+
+        if state_dict_path: 
             state_dict = torch.load(state_dict_path, map_location = self.args.device)
             self.model.load_state_dict(state_dict)
 
@@ -66,8 +71,6 @@ class KVAETrainer:
                 running_kld += kld_loss.item()
                 running_recon +=  recon_loss.item() # non-weighted by beta
 
-                self.scheduler.step()
-
             training_loss = running_loss/len(train_loader)
             training_kld = running_kld/len(train_loader)
             training_recon = running_recon/len(train_loader)
@@ -104,20 +107,21 @@ class KVAETrainer:
 parser = argparse.ArgumentParser()
 parser.add_argument('--epochs', default=1, type=int)
 parser.add_argument('--model', default="KVAE", type=str)
-parser.add_argument('--subdirectory', default="finetuned1", type=str)
+parser.add_argument('--subdirectory', default="finetuned2", type=str)
 
-parser.add_argument('--xdim', default=64, type=int)
-parser.add_argument('--adim', default=2, type=int)
-parser.add_argument('--zdim', default=4, type=int)
+parser.add_argument('--x_dim', default=1, type=int)
+parser.add_argument('--a_dim', default=2, type=int)
+parser.add_argument('--z_dim', default=4, type=int)
+parser.add_argument('--K', default=3, type=int)
 
 parser.add_argument('--clip', default=10, type=int)
 parser.add_argument('--beta', default=1, type=float)
 
-parser.add_argument('--save_every', default=25, type=int) 
+parser.add_argument('--save_every', default=10, type=int) 
 parser.add_argument('--learning_rate', default=1e-4, type=float)
 parser.add_argument('--batch_size', default=32, type=int)
 
-state_dict_path = None 
+state_dict_path = "saves/kvae/finetuned1/beta=0.0/kvae_state_dict_beta=0.0_25.pth" 
 
 def main():
     seed = 128
