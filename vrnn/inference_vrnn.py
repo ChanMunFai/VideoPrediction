@@ -251,6 +251,7 @@ def plot_losses_over_time(train = True):
     avg_mse_over_time = np.mean(combined_mse_over_time, axis = 0)
 
     plt.plot(avg_mse_over_time)
+    print("VRNN MSE", avg_mse_over_time)
 
     # for j in combined_mse_over_time: 
     #     plt.plot(j)

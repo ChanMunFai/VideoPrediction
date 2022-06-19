@@ -15,25 +15,28 @@ from utils import checkdir
 
 from sv2p.cdna import CDNA 
 from sv2p.model_sv2p import PosteriorInferenceNet, LatentVariableSampler
+from vrnn.model_vrnn import VRNN
 
 from data.MovingMNIST import MovingMNIST
 
 seed = 128
 torch.manual_seed(seed)
 
-batch_size = 16
+batch_size = 2
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-# state_dict_path = 'saves/sv2p/stage3/final_beta=0.0001/sv2p_state_dict_99.pth'
-# state_dict_path = "saves/sv2p/stage3/final_beta=0.1/sv2p_state_dict_499.pth"
-state_dict_path = "saves/sv2p/stage3/final_beta=0.001/sv2p_state_dict_550.pth"
-state_dict = torch.load(state_dict_path, map_location = device)
+state_dict_cdna_path = "saves/sv2p/stage3/final_beta=0.001/finetuned2/sv2p_cdna_state_dict_199.pth"
+state_dict_posterior_path = "saves/sv2p/stage3/final_beta=0.001/finetuned2/sv2p_posterior_state_dict_199.pth"
 
-model =  CDNA(in_channels = 1, cond_channels = 1,n_masks = 10).to(device) # stochastic
-model.load_state_dict(state_dict)
-model.to(device)
+state_dict_cdna = torch.load(state_dict_cdna_path, map_location = device)
+state_dict_posterior = torch.load(state_dict_posterior_path, map_location = device)
+
+model =  CDNA(in_channels = 1, cond_channels = 1,n_masks = 10).to(device) 
+model.load_state_dict(state_dict_cdna)
 
 q_net = PosteriorInferenceNet(tbatch = 10).to(device)
+q_net.load_state_dict(state_dict_posterior) 
+
 sampler = LatentVariableSampler()
 
 # Load in dataset
@@ -104,15 +107,15 @@ def print_reconstructions():
     predictions = []
 
     # Sample latent variable z from posterior - same z for all time steps
-    # with torch.no_grad():    
-    #     mu, sigma = q_net(data) 
-    # z = sampler.sample(mu, sigma).to(device) 
+    with torch.no_grad():    
+        mu, sigma = q_net(data) 
+    z = sampler.sample(mu, sigma).to(device) 
 
     # Sample latent variables from prior 
     # z = sampler.sample_prior((batch_size, 1, 8, 8)).to(device)
 
     # Use latent variables that are very different 
-    z = torch.full((batch_size, 1, 8, 8), 1000).to(device)
+    # z = torch.full((batch_size, 1, 8, 8), 1000).to(device)
 
     hidden = None
     with torch.no_grad():
@@ -157,9 +160,9 @@ def print_predictions(num_samples = 1, true_posterior = False):
     inputs = inputs.to(device) # t = 0, ... 9
     targets = targets.to(device) # t = 1, ... 10
 
-    seq_length = data.size(1)
-    seq_length_train = int(seq_length/2)
-    seq_length_test = seq_length - seq_length_train
+    seq_length = data.size(1) # 10 
+    seq_length_train = int(seq_length/2) # 5 
+    seq_length_test = seq_length - seq_length_train # 5 
 
     for n in range(num_samples): 
         z = sampler.sample_prior((batch_size, 1, 8, 8)).to(device)     # Sample latent variables from prior 
@@ -169,6 +172,7 @@ def print_predictions(num_samples = 1, true_posterior = False):
             z = sampler.sample(mu, sigma).to(device)
 
             output_dir = f"results/images/sv2p/predictions/train/true_posterior/"
+        
         hidden = None
         predicted_frames = torch.zeros(batch_size, seq_length_test, 1, 64, 64, device=device)
 
@@ -228,9 +232,90 @@ def split_data(data):
     assert inputs.shape == targets.shape
     return inputs, targets
 
+def calc_sv2p_losses_over_time(): 
+    """Calculate MSE for each predicted frame
+    over time"""
+
+    mse = nn.MSELoss(reduction = 'mean') # pixel-wise MSE 
+    mse_loss = []
+    mse_loss_black = []
+    mse_loss_last_seen = []
+
+    data, _ = next(iter(train_loader))
+    data = data.to(device)
+    data = torch.unsqueeze(data, 2)
+    data = (data - data.min()) / (data.max() - data.min())
+
+    inputs, targets = split_data(data) 
+    inputs = inputs.to(device) # t = 0, ... 8
+    targets = targets.to(device) # t = 1, ... 9
+
+    seq_length = data.size(1)
+    seq_length_train = int(seq_length/2) # 5 
+
+    z = sampler.sample_prior((batch_size, 1, 8, 8)).to(device)     # Sample latent variables from prior 
+
+    hidden = None
+    black_img = torch.full_like(inputs[:, 0, :, :, :], 0) # batch of black image
+
+    with torch.no_grad():
+        for t in range(inputs.size(1)): # 0, ... 8
+            if t < seq_length_train: # seen data
+                x_t = inputs[:, t, :, :, :] # t = 0, 1, 2, 3, 4
+                ground_truth_t = targets[:, t, :, :, :] # t = 1, 2, 3, 4, 5
+
+                predictions_t, hidden, _, _ = model(inputs = x_t, conditions = z,
+                                                hidden_states=hidden) # t = 1, 2, 3, 4, 5
+        
+                last_seen_image = x_t # t = 0, 1, 2, 3, 4
+
+                # Reconstruction losses 
+                # mse_loss.append(mse(predictions_t, ground_truth_t).item()) # mse averaged across all batch sizes and pixels 
+                # mse_loss_black.append(mse(black_img, ground_truth_t).item())  
+                # mse_loss_last_seen.append(mse(last_seen_image, ground_truth_t).item())
+
+            else: # t = 5, 6, 7, 8
+                ground_truth_t = targets[:, t, :, :, :] # t = 6, 7, 8, 9
+                x_t = predictions_t # use predicted x_t instead of actual x_t
+                predictions_t, hidden, _, _ = model(inputs = x_t, conditions = z,
+                                                hidden_states=hidden) 
+
+                # print("Size of Predictions", predictions_t.size()) # BS X 1 X 64 X 64
+                # print("Size of input", x_t.size()) # BS X 1 X 64 X 64
+
+                mse_loss.append(mse(predictions_t, ground_truth_t).item()) # mse averaged across all batch sizes and pixels 
+                mse_loss_black.append(mse(black_img, ground_truth_t).item()) 
+                mse_loss_last_seen.append(mse(last_seen_image, ground_truth_t).item())
+    
+    print(mse_loss, mse_loss_black, mse_loss_last_seen)
+
+    ### Plot VRNN losses here 
+    return mse_loss, mse_loss_black, mse_loss_last_seen
+
+def plot_losses_over_time():
+    mse_loss, mse_loss_black, mse_loss_last_seen = calc_sv2p_losses_over_time()
+    vrnn_losses = [0.00241283, 0.04991455, 0.05069356, 0.06102905]
+
+    plt.plot(mse_loss, label="SV2P")
+    plt.plot(mse_loss_black, label="Black Frame")
+    plt.plot(mse_loss_last_seen, label="Previous Frame")
+    plt.plot(vrnn_losses, label = "VRNN")
+    
+    plt.title("MSE between ground truth and predicted frame over time")
+    plt.ylabel('MSE')
+    plt.xlabel('Time')
+    plt.xticks(np.arange(0, 4, 1.0))
+    plt.legend(loc="upper left")
+
+    output_dir = "plots/SV2P/"
+    plt.savefig(output_dir + f"SV2P_loss_over_time.jpeg")
+    plt.close('all')
+
 
 if __name__ == "__main__":
     # check_data()
-    print_reconstructions()
-    # print_predictions(num_samples=20, true_posterior=True)
-    # print_predictions(num_samples=20, true_posterior=False)
+    # print_reconstructions()
+    # print_predictions(num_samples=1, true_posterior=True)
+    # print_predictions(num_samples=1, true_posterior=False)
+    # calc_sv2p_losses_over_time()
+    plot_losses_over_time()
