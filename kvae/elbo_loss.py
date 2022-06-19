@@ -35,12 +35,12 @@ class ELBO():
         self.a_dim = self.a_mu.size(2)
 
         # Fixed covariance matrices 
-        self.Q = 0.08*torch.eye(self.z_dim).to(float).to(self.device) 
-        self.R = 0.03*torch.eye(self.a_dim).to(float).to(self.device) 
+        self.Q = 0.08*torch.eye(self.z_dim).to(torch.float64).to(self.device) 
+        self.R = 0.03*torch.eye(self.a_dim).to(torch.float64).to(self.device) 
 
         # Initialise p(z_1) 
-        self.mu_z0 = (torch.zeros(self.z_dim)).float().to(self.device)
-        self.sigma_z0 = (20*torch.eye(self.z_dim)).float().to(self.device)
+        self.mu_z0 = (torch.zeros(self.z_dim)).double().to(self.device)
+        self.sigma_z0 = (20*torch.eye(self.z_dim)).double().to(self.device)
 
     def compute_loss(self): 
         """
@@ -139,15 +139,17 @@ class ELBO():
             a_log_var: Dim [BS X Time X a_dim ]
 
         Returns: 
-            loss_qa: float 
+            loss_qa: torch.float64 
         """
         a_var = torch.exp(self.a_log_var)
-        a_var = torch.clamp(a_var, min = 0) # force values to be above 0
+        a_var = torch.clamp(a_var, min = 1e-8) # force values to be above 1e-8
+        
         try: 
-            q_a = MultivariateNormal(self.a_mu, torch.diag_embed(a_var), validate_args = False) # BS X T X a_dim
+            q_a = MultivariateNormal(self.a_mu, torch.diag_embed(a_var)) # BS X T X a_dim
         except: 
             torch.save(a_var, "a_var.pt")
             torch.save(torch.diag_embed(a_var), "diag_a_var.pt")
+            logging.info("BUGGGG!")
             sys.exit() 
 
         # pdf of a given q_a 
@@ -162,7 +164,7 @@ class ELBO():
             z_sample: sample of dimension 
 
         Returns: 
-            loss: float 
+            loss: torch.float64 
         """
         loss_qz = self.smoothed_z.log_prob(self.z_sample).mean(dim=0).sum().to(self.device)
         return loss_qz

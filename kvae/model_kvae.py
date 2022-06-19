@@ -32,16 +32,16 @@ class KalmanVAE(nn.Module):
         self.state_dyn_net = None
 
         # Initialise p(z_1) 
-        self.mu_0 = (torch.zeros(self.z_dim)).float()
-        self.sigma_0 = (20*torch.eye(self.z_dim)).float()
+        self.mu_0 = (torch.zeros(self.z_dim)).to(torch.float64) 
+        self.sigma_0 = (20*torch.eye(self.z_dim)).to(torch.torch.float64) 
 
         # A initialised with identity matrices. B initialised from Gaussian 
         self.A = nn.Parameter(torch.eye(self.z_dim).unsqueeze(0).repeat(self.K,1,1)).to(self.device)
         self.C = nn.Parameter(torch.randn(self.K, self.a_dim, self.z_dim)*0.05).to(self.device)
 
         # Covariance matrices - fixed. Noise values obtained from paper. 
-        self.Q = 0.08*torch.eye(self.z_dim).to(float).to(self.device) 
-        self.R = 0.03*torch.eye(self.a_dim).to(float).to(self.device) 
+        self.Q = 0.08*torch.eye(self.z_dim).to(torch.torch.float64).to(self.device) 
+        self.R = 0.03*torch.eye(self.a_dim).to(torch.torch.float64).to(self.device) 
 
         self._init_weights()
 
@@ -112,8 +112,8 @@ class KalmanVAE(nn.Module):
         # print("A shape", self.A.shape) # K X z_dim X z_dim  
         # print("C shape", self.C.shape) # K X a_dim X z_dim  
         
-        A_t = torch.matmul(inter_weight, self.A.reshape(self.K,-1)).reshape(B,T,self.z_dim,self.z_dim).to(float)
-        C_t = torch.matmul(inter_weight, self.C.reshape(self.K,-1)).reshape(B,T,self.a_dim,self.z_dim).to(float)
+        A_t = torch.matmul(inter_weight, self.A.reshape(self.K,-1)).reshape(B,T,self.z_dim,self.z_dim).to(torch.torch.float64)
+        C_t = torch.matmul(inter_weight, self.C.reshape(self.K,-1)).reshape(B,T,self.a_dim,self.z_dim).to(torch.torch.float64)
         
         return A_t, C_t
 
@@ -138,19 +138,19 @@ class KalmanVAE(nn.Module):
         obs = obs.reshape(T, B, -1) # place T in first dimension for easier calculations 
         obs = obs.unsqueeze(-1)
 
-        mu_filt = torch.zeros(T, B, self.z_dim, 1).to(obs.device).float()
-        sigma_filt = torch.zeros(T, B, self.z_dim, self.z_dim).to(obs.device).float()
+        mu_filt = torch.zeros(T, B, self.z_dim, 1).to(obs.device).to(torch.float64)
+        sigma_filt = torch.zeros(T, B, self.z_dim, self.z_dim).to(obs.device).to(torch.float64)
 
-        mu_t = self.mu_0.expand(B,-1).unsqueeze(-1).to(float).to(self.device) 
-        sigma_t = self.sigma_0.expand(B,-1,-1).to(float).to(self.device)
+        mu_t = self.mu_0.expand(B,-1).unsqueeze(-1).to(torch.float64).to(self.device) 
+        sigma_t = self.sigma_0.expand(B,-1,-1).to(torch.float64).to(self.device)
         mu_predicted = mu_t
         sigma_predicted = sigma_t 
 
         mu_pred = torch.zeros_like(mu_filt).to(self.device) # A u_t
         sigma_pred = torch.zeros_like(sigma_filt).to(self.device) # P_t
 
-        A = A.to(float).to(self.device) 
-        C = C.to(float).to(self.device)
+        A = A.to(torch.float64).to(self.device) 
+        C = C.to(torch.float64).to(self.device)
 
         for t in range(T): 
             mu_pred[t] = mu_predicted
@@ -176,7 +176,7 @@ class KalmanVAE(nn.Module):
                 sigma_predicted = torch.matmul(torch.matmul(A[:,t+1,:, :], sigma_t), torch.transpose(A[:,t+1,:, :], 1, 2)) + self.Q 
                 mu_predicted = torch.matmul(A[:,t+1,:, :], mu_t)
 
-        return (mu_filt.to(float), sigma_filt.to(float)), (mu_pred.to(float), sigma_pred.to(float))
+        return (mu_filt.to(torch.float64), sigma_filt.to(torch.float64)), (mu_pred.to(torch.float64), sigma_pred.to(torch.float64))
 
         
     def smooth_posterior(self, A, filtered, predicted): 
@@ -198,18 +198,18 @@ class KalmanVAE(nn.Module):
         mu_filt, sigma_filt = filtered
         mu_pred, sigma_pred = predicted
 
-        mu_filt = mu_filt.to(float)
-        sigma_filt= sigma_filt.to(float)
-        mu_pred = mu_pred.to(float)
-        sigma_pred = sigma_pred.to(float)
+        mu_filt = mu_filt.to(torch.float64)
+        sigma_filt= sigma_filt.to(torch.float64)
+        mu_pred = mu_pred.to(torch.float64)
+        sigma_pred = sigma_pred.to(torch.float64)
 
-        mu_z_smooth = torch.zeros_like(mu_filt).to(float).to(self.device)
-        sigma_z_smooth = torch.zeros_like(sigma_filt).to(float).to(self.device)
+        mu_z_smooth = torch.zeros_like(mu_filt).to(torch.float64).to(self.device)
+        sigma_z_smooth = torch.zeros_like(sigma_filt).to(torch.float64).to(self.device)
         mu_z_smooth[-1] = mu_filt[-1]
         sigma_z_smooth[-1] = sigma_filt[-1]
 
         (T, *_) = mu_filt.size()
-        A = A.to(float).to(self.device)
+        A = A.to(torch.float64).to(self.device)
 
         for t in reversed(range(T-1)):
             J = torch.matmul(sigma_filt[t], torch.matmul(torch.transpose(A[:,t+1,:,:], 1,2), torch.inverse(sigma_pred[t+1])))
@@ -408,10 +408,10 @@ def trial_run():
     ##############################
 
     # Covariance matrices - are they learnable parameters???
-    Q = 0.08*torch.eye(4).to(float) 
+    Q = 0.08*torch.eye(4).to(torch.float64) 
 
-    mu_z1 = (torch.zeros(4)).float()
-    sigma_z1 = (20*torch.eye(4)).float()
+    mu_z1 = (torch.zeros(4)).to(torch.float64) 
+    sigma_z1 = (20*torch.eye(4)).to(torch.float64) 
     decoder_z1 = MultivariateNormal(mu_z1, scale_tril=torch.linalg.cholesky(sigma_z1))
     decoder_z = MultivariateNormal(torch.zeros(4), scale_tril=torch.linalg.cholesky(Q))
     
@@ -422,7 +422,7 @@ def trial_run():
     ####### log p(a_t|z_t) #######
     ##############################
 
-    R = 0.03*torch.eye(2).to(float) 
+    R = 0.03*torch.eye(2).to(torch.float64) 
     decoder_a = MultivariateNormal(torch.zeros(2), scale_tril=torch.linalg.cholesky(R))
     
     # print(a_sample.shape) # BS X T X a_dim

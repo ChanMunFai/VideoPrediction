@@ -125,16 +125,15 @@ class Encoder(nn.Module):
                 )
 
         self.out_mean = nn.Linear(1568, output_dim)
-        self.out_var = nn.Sequential(
+        self.out_log_var = nn.Sequential(
                     nn.Linear(1568, output_dim),
-                    nn.Softplus())
+                    ) # no need for SoftPlus because log variance can be any real number 
         
     def forward(self, x):
         B, T, NC, H, W = x.size()
         x = x.reshape(B*T, NC, H, W)
         a = self.encode(x)
-        mean, var = self.out_mean(a), self.out_var(a)
-        log_var = torch.log(var)
+        mean, log_var = self.out_mean(a), self.out_log_var(a)
 
         mean = mean.reshape(B, T, -1)
         log_var = log_var.reshape(B, T, -1)
