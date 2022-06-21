@@ -4,12 +4,25 @@ import torch.nn as nn
 from torch.distributions import MultivariateNormal
 
 class ELBO():
-    def __init__(self, x, x_hat, a_sample, a_mu, a_log_var, smoothed, \
-            A_t, C_t, beta = 1):
-        """ Object to compute ELBO loss for Kalman VAE. 
+    def __init__(self, x, x_mu, x_var, x_hat, a_sample, a_mu, a_log_var, smoothed, \
+            A_t, C_t, scale = 0.3):
+        """ Object to compute ELBO for Kalman VAE. 
+
+        Here, instead of maximising ELBO, we min -ELBO, whereby 
+        
+        ELBO = recon_ll - latent_ll + elbo_kf
+             = log p(x) - log q(a) + [log p(z_t|z_t-1)} + log p(a_t|z_t)} - log p(z_t|a_{1:T}}]
+
+        To min loss, we min: 
+        Loss = recon_loss + latent_ll - elbo_kf
+             = -log p(x) + log q(a) - [log p(z_t|z_t-1)} + log p(a_t|z_t)} - log p(z_t|a_{1:T}}]
+
+        whereby recon_loss = - recon_ll. 
 
         Arguments: 
             x: Dim [B X T X NC X H X W]
+            x_mu: Dim [B X T X NC X H X W]
+            x_var: Dim [B X T X NC X H X W]
             x_hat: Dim [B X T X NC X H X W]
             a_sample: Dim [BS X Time X a_dim]
             a_mu: Dim [BS X Time X a_dim]
@@ -21,6 +34,7 @@ class ELBO():
         self.device = x.device
 
         self.x = x
+        self.x_mu = x_mu # Not yet supported in decoder # no need for x_var because it is a constant
         self.x_hat = x_hat
         self.a_sample = a_sample 
         self.a_mu = a_mu
@@ -30,7 +44,7 @@ class ELBO():
         self.A_t = A_t
         self.C_t = C_t 
 
-        self.beta = beta 
+        self.scale = scale 
         self.z_dim = self.mu_z_smoothed.size(2)
         self.a_dim = self.a_mu.size(2)
 
@@ -44,50 +58,44 @@ class ELBO():
 
     def compute_loss(self): 
         """
-        min -ELBO =  - log p(x_t|a_t) + log q(a) + log q(z) - log p(a_t | z_t) - log p(z_t| z_t-1)
-
-        We wish to maximise ELBO or min - ELBO (we use the latter in code because we wish to min loss).
-
-        To max ELBO, we max reconstruction quality or min MSE i.e. recon_loss. 
-        Conversely, to min -ELBO, we max recon_loss. 
-
-        Similarly, to max ELBO, we max
-        [log q(a) + log q(z) - log p(a_t| z_t) - log p(z_t| z_t-1)].
-        To min - ELBO, we min 
-        - [log q(a) + log q(z) - log p(a_t| z_t) - log p(z_t| z_t-1)]
+        Instead of using beta as in Beta-VAE, we use a scale parameter on the 
+        recon_loss. 
 
         Returns: 
-            loss: recon_loss + kld
-            elbo: recon_loss + beta * kld
+            loss: self.scale * recon_loss + latent_ll - elbo_kf
             recon_loss: -log p(x_t|a_t)
-            kld: -[log q(a) + log q(z) - log p(a_t | z_t) - log p(z_t| z_t-1)]
+                * Can either be MSE, or NLL of a Bernoulli or Gaussian distribution 
+            latent_ll: log q(a)
+            elbo_kf: [log q(z) - log p(a_t | z_t) - log p(z_t| z_t-1)]
+
+        During training, we want loss to go down, recon_loss to go down, latent_ll to go down, 
+        elbo_kf to go up. 
         """
 
         (B, T, *_) = self.x.size()
 
         recon_loss = self.compute_reconstruction_loss()
         kld = 0 
-        loss_qa = self.compute_a_marginal_loglikelihood()
+        latent_ll = self.compute_a_marginal_loglikelihood() # log q(a)
 
+        ### LGSSM - p(zt|zt-1) and p(at|zt)
         self.smoothed_z = MultivariateNormal(self.mu_z_smoothed.squeeze(-1), 
                                         scale_tril=torch.linalg.cholesky(self.sigma_z_smoothed))
         self.z_sample = self.smoothed_z.sample()
         self.z_sample = self.z_sample.reshape(B, T, -1).to(self.device)
-        loss_qz = self.compute_z_marginal_loglikelihood()
+        z_marginal_ll = self.compute_z_marginal_loglikelihood() # log q(z)
 
-        ### LGSSM - p(zt|zt-1) and p(at|zt)
         a_pred, z_next = self._decode_latent(self.z_sample, self.A_t, self.C_t) 
         self.a_pred = a_pred.reshape(B, T, -1).to(self.device)
         self.z_next = z_next.reshape(B, T, -1).to(self.device)
 
-        loss_z_cond = self.compute_z_conditional_loglikelihood()
-        loss_a_cond = self.compute_a_conditional_loglikelihood()
+        z_cond_ll = self.compute_z_conditional_loglikelihood() # log p(z_t| z_t-1)
+        a_cond_ll = self.compute_a_conditional_loglikelihood() # log p(a_t| z_t)
 
-        kld = loss_qa + loss_qz - loss_a_cond - loss_z_cond
-        # kld = -kld 
-        loss = recon_loss + self.beta * kld
+        elbo_kf =  (z_marginal_ll - a_cond_ll - z_cond_ll)
+        loss = self.scale * recon_loss + latent_ll - elbo_kf
 
-        return loss, kld, recon_loss  
+        return loss, recon_loss, latent_ll, elbo_kf  
 
     def _decode_latent(self, z_sample, A, C):
         """ Returns z_t+1 and a_t given z_t and matrices A and C. 
@@ -111,21 +119,35 @@ class ELBO():
         
         return a_pred, z_next
 
-    def compute_reconstruction_loss(self): 
+    def compute_reconstruction_loss(self, mode == "bernoulli"): 
         """ Compute reconstruction loss of x_hat against x. 
         
         Arguments: 
-            x: dim [B X T X NC X H X W]
-            x_hat: dim [B X T X NC X H X W]
+            mode: 'bernoulli', 'gaussian' or 'mse'
 
         Returns: 
-            mse: Mean Squared Error summed across all pixels and all time steps, 
-                 averaged over batch size
+            recon_loss: Reconstruction Loss summed across all pixels and all time steps, 
+                 averaged over batch size. When using 'bernoulli' or 'gaussian', this is 
+                 the Negative Log-Likelihood. 
         """
-        calc_mse_loss = nn.MSELoss(reduction = 'sum').to(self.device) # MSE over all pixels
-        mse = calc_mse_loss(self.x, self.x_hat)
-        mse = mse / self.x.size(0)
-        return mse.to(self.device) 
+        if mode == "mse": 
+            calc_mse_loss = nn.MSELoss(reduction = 'sum').to(self.device) # MSE over all pixels
+            mse = calc_mse_loss(self.x, self.x_hat)
+            mse = mse / self.x.size(0)
+            return mse.to(self.device) 
+        
+        elif mode == "bernoulli": 
+            self.x_mu = torch.clamp(self.x_mu, 1e-8, 1 - 1e-8) # prob
+            ll = self.x_mu * torch.log(self.x) + (1 - self.x) * torch.log(1-self.x_mu)
+            ll = ll.mean(dim = 0).sum() # verify this 
+            return - ll 
+
+        elif mode == "gaussian": 
+            x_var = torch.full_like(self.x_mu, 0.01)
+            x_dist = MultivariateNormal(self.x_mu, torch.diag_embed(x_var))
+            ll = x_dist.log_prob(x).mean(dim = 0).sum() # verify this 
+            return - ll
+            
 
     def compute_a_marginal_loglikelihood(self):
         """ Compute q(a). 
@@ -139,22 +161,16 @@ class ELBO():
             a_log_var: Dim [BS X Time X a_dim ]
 
         Returns: 
-            loss_qa: torch.float64 
+            latent_ll: q(a_sample)
         """
         a_var = torch.exp(self.a_log_var)
         a_var = torch.clamp(a_var, min = 1e-8) # force values to be above 1e-8
+    
+        q_a = MultivariateNormal(self.a_mu, torch.diag_embed(a_var)) # BS X T X a_dim
         
-        try: 
-            q_a = MultivariateNormal(self.a_mu, torch.diag_embed(a_var)) # BS X T X a_dim
-        except: 
-            torch.save(a_var, "a_var.pt")
-            torch.save(torch.diag_embed(a_var), "diag_a_var.pt")
-            logging.info("BUGGGG!")
-            sys.exit() 
-
         # pdf of a given q_a 
-        loss_qa = q_a.log_prob(self.a_sample).mean(dim=0).sum().to(self.device) # summed across all time steps, averaged in batch 
-        return loss_qa
+        latent_ll = q_a.log_prob(self.a_sample).mean(dim=0).sum().to(self.device) # summed across all time steps, averaged in batch 
+        return latent_ll
 
     def compute_z_marginal_loglikelihood(self):
         """ Compute q(z).

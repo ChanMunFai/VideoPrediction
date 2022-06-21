@@ -24,13 +24,9 @@ class KVAETrainer:
         self.writer = SummaryWriter()
         print(self.args)
 
-        self.model = KalmanVAE(self.args.x_dim, self.args.a_dim, self.args.z_dim, self.args.K, self.args.device, self.args.beta).to(self.args.device)
+        self.model = KalmanVAE(self.args.x_dim, self.args.a_dim, self.args.z_dim, self.args.K, self.args.device, self.args.scale).to(self.args.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
     
-        # for name, param in self.model.named_parameters(): 
-        #     if param.requires_grad:
-        #         print(name)
-
         if state_dict_path: 
             state_dict = torch.load(state_dict_path, map_location = self.args.device)
             self.model.load_state_dict(state_dict)
@@ -39,13 +35,14 @@ class KVAETrainer:
         n_iterations = 0
         logging.info(f"Starting KVAE training for {self.args.epochs} epochs.")
 
-        logging.info("Train Loss, KLD, MSE") # header for losses
+        logging.info("Train Loss, Reconstruction Loss, log q(a), ELBO_KF") # header for losses
 
         for epoch in range(self.args.epochs):
             print("Epoch:", epoch)
             running_loss = 0 # keep track of loss per epoch
-            running_kld = 0
             running_recon = 0
+            running_latent_ll = 0 
+            running_elbo_kf = 0
 
             for data, _ in tqdm(train_loader):
 
@@ -55,7 +52,7 @@ class KVAETrainer:
 
                 #forward + backward + optimize
                 self.optimizer.zero_grad()
-                loss, kld_loss, recon_loss, *_ = self.model(data)
+                loss, recon_loss, latent_ll, elbo_kf  = self.model(data)
                 loss.backward()
                 self.optimizer.step()
 
@@ -63,23 +60,28 @@ class KVAETrainer:
 
                 # forward pass
                 print(f"Loss: {loss}")
-                print(f"KLD: {kld_loss}")
                 print(f"Reconstruction Loss: {recon_loss}") 
+                print(f"Latent Loglikelihood: {latent_ll}")
+                print(f"ELBO KF: {elbo_kf}")
 
                 n_iterations += 1
                 running_loss += loss.item()
-                running_kld += kld_loss.item()
-                running_recon +=  recon_loss.item() # non-weighted by beta
+                running_recon +=  recon_loss.item() 
+                running_latent_ll += latent_ll.item()
+                running_elbo_kf += elbo_kf.item()
 
             training_loss = running_loss/len(train_loader)
-            training_kld = running_kld/len(train_loader)
             training_recon = running_recon/len(train_loader)
+            training_latent_ll = running_latent_ll/len(train_loader)
+            training_elbo_kf = running_elbo_kf/len(train_loader)
 
             print(f"Epoch: {epoch}\
                     \n Train Loss: {training_loss}\
-                    \n KLD Loss: {training_kld}\
-                    \n Reconstruction Loss: {training_recon}")
-            logging.info(f"{training_loss:.8f}, {training_kld:.8f}, {training_recon:.8f}")
+                    \n Reconstruction Loss: {training_recon}\
+                    \n Latent Log-likelihood: {training_latent_ll}\
+                    \n ELBO Kalman Filter: {training_elbo_kf}")
+
+            logging.info(f"{training_loss:.8f}, {training_recon:.8f}, {training_latent_ll:.8f}, {training_elbo_kf:.8f}")
 
             if epoch % self.args.save_every == 0:
                 self._save_model(epoch)
@@ -90,12 +92,12 @@ class KVAETrainer:
         logging.info(f'Saved model. Final Checkpoint {final_checkpoint}')
 
     def _save_model(self, epoch):  
-        checkpoint_path = f'saves/kvae/{self.args.subdirectory}/beta={self.args.beta}/'
+        checkpoint_path = f'saves/kvae/{self.args.subdirectory}/scale={self.args.scale}/'
 
         if not os.path.isdir(checkpoint_path):
             os.makedirs(checkpoint_path)
 
-        filename = f'kvae_state_dict_beta={self.args.beta}_{epoch}.pth'
+        filename = f'kvae_state_dict_scale={self.args.scale}_{epoch}.pth'
         checkpoint_name = checkpoint_path + filename
 
         torch.save(self.model.state_dict(), checkpoint_name)
@@ -115,13 +117,14 @@ parser.add_argument('--z_dim', default=4, type=int)
 parser.add_argument('--K', default=3, type=int)
 
 parser.add_argument('--clip', default=10, type=int)
-parser.add_argument('--beta', default=1, type=float)
+parser.add_argument('--scale', default=0.3, type=float)
 
 parser.add_argument('--save_every', default=10, type=int) 
 parser.add_argument('--learning_rate', default=1e-4, type=float)
 parser.add_argument('--batch_size', default=32, type=int)
 
-state_dict_path = "saves/kvae/finetuned1/beta=0.0/kvae_state_dict_beta=0.0_25.pth" 
+# state_dict_path = "saves/kvae/finetuned1/beta=0.0/kvae_state_dict_beta=0.0_25.pth"
+state_dict_path = None 
 
 def main():
     seed = 128
@@ -135,7 +138,7 @@ def main():
         args.device = torch.device('cpu')
 
     # set up logging
-    log_fname = f'{args.model}_beta={args.beta}_{args.epochs}.log'
+    log_fname = f'{args.model}_scale={args.scale}_{args.epochs}.log'
     log_dir = f"logs/{args.model}/{args.subdirectory}/"
     log_path = log_dir + log_fname
     if not os.path.isdir(log_dir):
