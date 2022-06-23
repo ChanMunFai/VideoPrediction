@@ -43,6 +43,7 @@ class KVAETrainer:
             running_recon = 0
             running_latent_ll = 0 
             running_elbo_kf = 0
+            running_mse = 0 
 
             for data, _ in tqdm(train_loader):
 
@@ -52,7 +53,7 @@ class KVAETrainer:
 
                 #forward + backward + optimize
                 self.optimizer.zero_grad()
-                loss, recon_loss, latent_ll, elbo_kf  = self.model(data)
+                loss, recon_loss, latent_ll, elbo_kf, mse  = self.model(data)
                 loss.backward()
                 self.optimizer.step()
 
@@ -63,25 +64,29 @@ class KVAETrainer:
                 print(f"Reconstruction Loss: {recon_loss}") 
                 print(f"Latent Loglikelihood: {latent_ll}")
                 print(f"ELBO KF: {elbo_kf}")
+                print(f"MSE: {mse}")
 
                 n_iterations += 1
                 running_loss += loss.item()
                 running_recon +=  recon_loss.item() 
                 running_latent_ll += latent_ll.item()
                 running_elbo_kf += elbo_kf.item()
+                running_mse += mse.item()
 
             training_loss = running_loss/len(train_loader)
             training_recon = running_recon/len(train_loader)
             training_latent_ll = running_latent_ll/len(train_loader)
             training_elbo_kf = running_elbo_kf/len(train_loader)
+            training_mse = running_mse/len(train_loader)
 
             print(f"Epoch: {epoch}\
                     \n Train Loss: {training_loss}\
                     \n Reconstruction Loss: {training_recon}\
                     \n Latent Log-likelihood: {training_latent_ll}\
-                    \n ELBO Kalman Filter: {training_elbo_kf}")
+                    \n ELBO Kalman Filter: {training_elbo_kf}\
+                    \n MSE: {training_mse}")
 
-            logging.info(f"{training_loss:.8f}, {training_recon:.8f}, {training_latent_ll:.8f}, {training_elbo_kf:.8f}")
+            logging.info(f"{training_loss:.8f}, {training_recon:.8f}, {training_latent_ll:.8f}, {training_elbo_kf:.8f}, {training_mse:.8f}")
 
             if epoch % self.args.save_every == 0:
                 self._save_model(epoch)
@@ -109,14 +114,14 @@ class KVAETrainer:
 parser = argparse.ArgumentParser()
 parser.add_argument('--epochs', default=1, type=int)
 parser.add_argument('--model', default="KVAE", type=str)
-parser.add_argument('--subdirectory', default="finetuned2", type=str)
+parser.add_argument('--subdirectory', default="finetuned1", type=str)
 
 parser.add_argument('--x_dim', default=1, type=int)
 parser.add_argument('--a_dim', default=2, type=int)
 parser.add_argument('--z_dim', default=4, type=int)
 parser.add_argument('--K', default=3, type=int)
 
-parser.add_argument('--clip', default=10, type=int)
+parser.add_argument('--clip', default=150, type=int)
 parser.add_argument('--scale', default=0.3, type=float)
 
 parser.add_argument('--save_every', default=10, type=int) 
