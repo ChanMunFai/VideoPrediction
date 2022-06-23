@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch.distributions import MultivariateNormal
 
 class ELBO():
-    def __init__(self, x, x_mu, x_var, x_hat, a_sample, a_mu, a_log_var, smoothed, \
+    def __init__(self, x, x_mu, x_hat, a_sample, a_mu, a_log_var, smoothed, \
             A_t, C_t, scale = 0.3):
         """ Object to compute ELBO for Kalman VAE. 
 
@@ -74,11 +74,11 @@ class ELBO():
 
         (B, T, *_) = self.x.size()
 
-        recon_loss = self.compute_reconstruction_loss()
+        recon_loss = self.compute_reconstruction_loss(mode = "bernoulli")
         kld = 0 
         latent_ll = self.compute_a_marginal_loglikelihood() # log q(a)
 
-        ### LGSSM - p(zt|zt-1) and p(at|zt)
+        ### LGSSM 
         self.smoothed_z = MultivariateNormal(self.mu_z_smoothed.squeeze(-1), 
                                         scale_tril=torch.linalg.cholesky(self.sigma_z_smoothed))
         self.z_sample = self.smoothed_z.sample()
@@ -93,9 +93,16 @@ class ELBO():
         a_cond_ll = self.compute_a_conditional_loglikelihood() # log p(a_t| z_t)
 
         elbo_kf =  (z_marginal_ll - a_cond_ll - z_cond_ll)
+        print("q(z) is ", z_marginal_ll.item())
+        print("q(a|z) is ", a_cond_ll.item())
+        print("q(z|zt is", z_cond_ll.item())
+
         loss = self.scale * recon_loss + latent_ll - elbo_kf
 
-        return loss, recon_loss, latent_ll, elbo_kf  
+        # Calculate MSE for tracking 
+        mse_loss = self.compute_reconstruction_loss(mode = "mse")
+
+        return loss, recon_loss, latent_ll, elbo_kf, mse_loss  
 
     def _decode_latent(self, z_sample, A, C):
         """ Returns z_t+1 and a_t given z_t and matrices A and C. 
@@ -114,12 +121,22 @@ class ELBO():
             z_next: vector z_t+1 of dim [B X T X z_dim]
             a_pred: vector a_t of dim [B X T X a_dim]
         """
+        # Do this just in case I got matrix multiplication wrong
+        B, T, z_dim = z_sample.size() 
+        z_sample = torch.reshape(z_sample, (B*T, -1)) # [B*T, z_dim]
+        A = torch.reshape(A, (B*T, z_dim, z_dim)) # [B*T, z_dim, z_dim]
+        B, T, a_dim, z_dim = C.size()
+        C = torch.reshape(C, (B*T, a_dim, z_dim))
+
         z_next = torch.matmul(A, z_sample.unsqueeze(-1)).squeeze(-1)
         a_pred = torch.matmul(C, z_sample.unsqueeze(-1)).squeeze(-1)
+
+        z_next = torch.reshape(z_next, (B, T, z_dim))
+        a_pred = torch.reshape(a_pred, (B, T, a_dim))
         
         return a_pred, z_next
 
-    def compute_reconstruction_loss(self, mode == "bernoulli"): 
+    def compute_reconstruction_loss(self, mode = "bernoulli"): 
         """ Compute reconstruction loss of x_hat against x. 
         
         Arguments: 
@@ -137,9 +154,10 @@ class ELBO():
             return mse.to(self.device) 
         
         elif mode == "bernoulli": 
-            self.x_mu = torch.clamp(self.x_mu, 1e-8, 1 - 1e-8) # prob
-            ll = self.x_mu * torch.log(self.x) + (1 - self.x) * torch.log(1-self.x_mu)
-            ll = ll.mean(dim = 0).sum() # verify this 
+            eps = 1e-5
+            prob = torch.clamp(self.x_mu, eps, 1 - eps) # prob = x_mu 
+            ll = self.x * torch.log(prob) + (1 - self.x) * torch.log(1-prob)
+            ll = ll.mean(dim = 0).sum() 
             return - ll 
 
         elif mode == "gaussian": 
@@ -190,13 +208,19 @@ class ELBO():
         decoder_z = MultivariateNormal(torch.zeros(4).to(self.device), scale_tril=torch.linalg.cholesky(self.Q))
         
         loss_z0 = decoder_z0.log_prob(self.z_sample[0]).mean(dim=0) 
-        loss_zt_ztminus1 = decoder_z.log_prob((self.z_sample[:, 1:] - self.z_next[:,:-1])).mean(dim=0).sum().to(self.device) # averaged across batches, summed over time
+        loss_zt_ztminus1 = decoder_z.log_prob((self.z_sample[:, 1:, :] - self.z_next[:,:-1, :])).mean(dim=0).sum().to(self.device) # averaged across batches, summed over time
 
-        return loss_z0 + loss_zt_ztminus1
+        loss_z = loss_z0 + loss_zt_ztminus1
+        loss_z = torch.clamp(loss_z, -10000, 10000)
+
+        return loss_z
 
     def compute_a_conditional_loglikelihood(self):
         decoder_a = MultivariateNormal(torch.zeros(2).to(self.device), scale_tril=torch.linalg.cholesky(self.R))
         loss_a = decoder_a.log_prob((self.a_sample - self.a_pred)).mean(dim=1).sum().to(self.device)
+        
+        loss_a = torch.clamp(loss_a, -10000, 10000)
+        
         return loss_a
 
 

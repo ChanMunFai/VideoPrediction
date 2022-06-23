@@ -5,24 +5,22 @@ import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal, Normal, Bernoulli
 
-from kvae.modules import CNNFastDecoder, CNNFastEncoder, Encoder, SubPixelDecoder
+from kvae.encode_decode import Encoder, Decoder 
 from kvae.elbo_loss import ELBO
 
 class KalmanVAE(nn.Module):
-    def __init__(self, x_dim, a_dim, z_dim, K, device, beta=1):
+    def __init__(self, x_dim, a_dim, z_dim, K, device, scale=0.3):
         super(KalmanVAE, self).__init__()
         self.x_dim = x_dim
         self.a_dim = a_dim
         self.z_dim = z_dim
         self.K = K
-        self.beta = beta
+        self.scale = scale
 
         self.device = device 
 
-        # self.encoder = CNNFastEncoder(self.x_dim, self.a_dim)
-        # self.decoder = CNNFastDecoder(self.a_dim, self.x_dim)
-        self.encoder = Encoder(self.x_dim, self.a_dim)
-        self.decoder = SubPixelDecoder(scale_factor=46, num_channels = self.a_dim)
+        self.encoder = Encoder(input_channels=1, a_dim = 2).to(self.device)
+        self.decoder = Decoder(a_dim = 2, enc_shape = [32, 7, 7], device = self.device).to(self.device) # change this to encoder shape
         
         self.parameter_net = nn.LSTM(self.a_dim, 50, 2, batch_first=True).to(self.device)
         self.alpha_out = nn.Linear(50, self.K).to(self.device) 
@@ -62,13 +60,13 @@ class KalmanVAE(nn.Module):
             a_mu: shape [BS X T X a_dim]
             a_log_var: shape [BS X T X a_dim]
         """
-
-        (a_mu, a_log_var) = self.encoder(x)
+        (a_mu, a_log_var, _) = self.encoder(x)
         eps = torch.normal(mean=torch.zeros_like(a_mu)).to(x.device)
         a_std = (a_log_var*0.5).exp()
-        sample = a_mu + a_std*eps
+        a_sample = a_mu + a_std*eps
+        a_sample = a_sample.to(x.device)
         
-        return sample, a_mu, a_log_var
+        return a_sample, a_mu, a_log_var
 
     def _interpolate_matrices(self, obs, learn_a1 = True):
         """ Generate weights to choose and interpolate between K operating modes. 
@@ -239,17 +237,15 @@ class KalmanVAE(nn.Module):
             a: Dim [B X T X a_dim]
         
         Returns: 
-            x_hat: [B X T X 64 X 64]
+            x_mu: [B X T X 64 X 64]
         """
         B, T, *_ = a.size()
-        a = a.reshape(B*T, -1)
+        # a = a.reshape(B*T, -1)
 
-        x_hat = self.decoder(a)
-        x_hat = x_hat.reshape(B, T, -1)
-        x_hat = x_hat[:, :, :4096]
-        x_hat = x_hat.reshape(B, T, 64, 64)
+        x_mu = self.decoder(a)
+        # print("Decoded x:", x_mu.size())
 
-        return x_hat.to(self.device) 
+        return x_mu 
         
     def _sample(self, size):
         eps = torch.normal(mean=torch.zeros(size))
@@ -258,21 +254,21 @@ class KalmanVAE(nn.Module):
     def forward(self, x):
         (B,T,C,H,W) = x.size()
         # q(a_t|x_t)
-        a_sample, a_mu, a_log_var = self._encode(x)
-        a_sample = a_sample.reshape(B,T,-1)
-        a_mu = a_mu.reshape(B,T,-1)
-        a_log_var = a_log_var.reshape(B,T,-1)
+        a_sample, a_mu, a_log_var = self._encode(x) 
         
         # q(z|a)
         smoothed, A_t, C_t = self._kalman_posterior(a_sample)
         # p(x_t|a_t)
         x_hat = self._decode(a_sample).reshape(B,T,C,H,W)
+        x_mu = x_hat # assume they are the same for now
         # ELBO
 
-        elbo_calculator = ELBO(x, x_hat, a_sample, a_mu, a_log_var, smoothed, A_t, C_t, self.beta)
-        loss, kld, recon_loss = elbo_calculator.compute_loss()
+        elbo_calculator = ELBO(x, x_mu, x_hat, 
+                        a_sample, a_mu, a_log_var, 
+                        smoothed, A_t, C_t, self.scale)
+        loss, recon_loss, latent_ll, elbo_kf, mse_loss = elbo_calculator.compute_loss()
 
-        return loss, kld, recon_loss, x_hat, a_sample
+        return loss, recon_loss, latent_ll, elbo_kf, mse_loss 
 
     def predict_sequence(self, input, seq_len=None):
         (B,T,C,H,W) = input.size()
