@@ -92,7 +92,9 @@ class ELBO():
         z_cond_ll = self.compute_z_conditional_loglikelihood() # log p(z_t| z_t-1)
         a_cond_ll = self.compute_a_conditional_loglikelihood() # log p(a_t| z_t)
 
-        elbo_kf =  (z_marginal_ll - a_cond_ll - z_cond_ll)
+        # elbo_kf =  (z_marginal_ll - a_cond_ll - z_cond_ll) # wait this seems to be wrong 
+        elbo_kf = a_cond_ll + z_cond_ll - z_marginal_ll
+
         print("q(z) is ", z_marginal_ll.item())
         print("q(a|z) is ", a_cond_ll.item())
         print("q(z|zt is", z_cond_ll.item())
@@ -211,7 +213,7 @@ class ELBO():
         loss_zt_ztminus1 = decoder_z.log_prob((self.z_sample[:, 1:, :] - self.z_next[:,:-1, :])).mean(dim=0).sum().to(self.device) # averaged across batches, summed over time
 
         loss_z = loss_z0 + loss_zt_ztminus1
-        loss_z = torch.clamp(loss_z, -10000, 10000)
+        print("q(z_0) is ", loss_z0.item())
 
         return loss_z
 
@@ -219,7 +221,7 @@ class ELBO():
         decoder_a = MultivariateNormal(torch.zeros(2).to(self.device), scale_tril=torch.linalg.cholesky(self.R))
         loss_a = decoder_a.log_prob((self.a_sample - self.a_pred)).mean(dim=1).sum().to(self.device)
         
-        loss_a = torch.clamp(loss_a, -10000, 10000)
+        # loss_a = torch.clamp(loss_a, -10000, 10000)
         
         return loss_a
 
