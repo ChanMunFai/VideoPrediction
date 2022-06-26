@@ -11,7 +11,7 @@ import cv2
 import pymunk
 import pymunk.pygame_util
 
-from data.util import to_convex_contour, calculate_midpoint, PolyArea
+from data.bb_util import to_convex_contour, calculate_midpoint, PolyArea
 import numpy as np
 
 from pymunk import Vec2d
