@@ -26,7 +26,7 @@ class KalmanVAE(nn.Module):
         self.alpha_out = nn.Linear(50, self.K).to(self.device) 
 
         # Initialise a_1 (optional)
-        self.a1 = nn.Parameter(torch.zeros(self.a_dim)).to(self.device)
+        self.a1 = nn.Parameter(torch.zeros(self.a_dim).to(self.device))
         self.state_dyn_net = None
 
         # Initialise p(z_1) 
@@ -34,8 +34,8 @@ class KalmanVAE(nn.Module):
         self.sigma_0 = (20*torch.eye(self.z_dim)).to(torch.torch.float64) 
 
         # A initialised with identity matrices. B initialised from Gaussian 
-        self.A = nn.Parameter(torch.eye(self.z_dim).unsqueeze(0).repeat(self.K,1,1)).to(self.device)
-        self.C = nn.Parameter(torch.randn(self.K, self.a_dim, self.z_dim)*0.05).to(self.device)
+        self.A = nn.Parameter(torch.eye(self.z_dim).unsqueeze(0).repeat(self.K,1,1).to(self.device))
+        self.C = nn.Parameter(torch.randn(self.K, self.a_dim, self.z_dim).to(self.device)*0.05)
 
         # Covariance matrices - fixed. Noise values obtained from paper. 
         self.Q = 0.08*torch.eye(self.z_dim).to(torch.torch.float64).to(self.device) 
@@ -103,6 +103,7 @@ class KalmanVAE(nn.Module):
             # print("joint_obs shape", joint_obs.shape) # BS X T X a_dim
         
         dyn_emb, self.state_dyn_net = self.parameter_net(joint_obs)
+        # print(self.state_dyn_net)
         dyn_emb = self.alpha_out(dyn_emb.reshape(B*T,50))
         inter_weight = dyn_emb.softmax(-1)
         
@@ -427,7 +428,7 @@ def trial_run():
     loss_a = decoder_a.log_prob((a_sample - a_pred)).mean(dim=1).sum()
     # print(loss_a.shape)
 
-    print(loss_a)
+    # print(loss_a)
     
 if __name__=="__main__":
     trial_run()

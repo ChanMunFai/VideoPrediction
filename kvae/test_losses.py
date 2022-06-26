@@ -10,12 +10,8 @@ def test_z_cond_ll(z_next_value):
     decoder_z = MultivariateNormal(torch.zeros(4), scale_tril=torch.linalg.cholesky(Q))
     
     log_prob_zt_ztminus1 = decoder_z.log_prob((z_sample - z_next)).mean(dim=0).sum() # averaged across batches, summed over time
-    print(log_prob_zt_ztminus1)
+    print(log_prob_zt_ztminus1.item())
 
-# test_z_cond_ll(0.01)
-# test_z_cond_ll(1)
-# test_z_cond_ll(100)
-# test_z_cond_ll(1000)
 
 # So the more different z_t+1 is from z_t, the more negative the LL 
 # But if they are close, then the LL is supposed to be positive 
@@ -29,9 +25,15 @@ def test_z0(z0_sample_value):
     loss_z0 = decoder_z0.log_prob(z_sample)
     print(loss_z0.item())
 
-test_z0(0.01)
-test_z0(0.1)
-test_z0(1)
-test_z0(10)
-test_z0(100)
+if __name__ == "__main__":
+    test_z_cond_ll(0.01)
+    test_z_cond_ll(0.1)
+    test_z_cond_ll(0.3)
+    test_z_cond_ll(1)
+    
+    test_z0(0.01)
+    test_z0(0.1)
+    test_z0(1)
+    test_z0(10)
+    test_z0(100)
 

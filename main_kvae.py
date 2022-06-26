@@ -25,17 +25,24 @@ class KVAETrainer:
         print(self.args)
 
         self.model = KalmanVAE(self.args.x_dim, self.args.a_dim, self.args.z_dim, self.args.K, self.args.device, self.args.scale).to(self.args.device)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
+        
+        parameters = list(self.model.encoder.parameters()) + list(self.model.decoder.parameters()) \
+                    + list(self.model.parameter_net.parameters()) + list(self.model.alpha_out.parameters()) \
+                    + [self.model.a1, self.model.A, self.model.C]
+        
+        self.optimizer = torch.optim.Adam(parameters, lr=self.args.learning_rate)
     
         if state_dict_path: 
             state_dict = torch.load(state_dict_path, map_location = self.args.device)
+            logging.info(f"Loaded State Dict from {state_dict_path}.")
+            
             self.model.load_state_dict(state_dict)
 
     def train(self, train_loader):
         n_iterations = 0
         logging.info(f"Starting KVAE training for {self.args.epochs} epochs.")
 
-        logging.info("Train Loss, Reconstruction Loss, log q(a), ELBO_KF") # header for losses
+        logging.info("Train Loss, Reconstruction Loss, log q(a), ELBO_KF, MSE") # header for losses
 
         for epoch in range(self.args.epochs):
             print("Epoch:", epoch)
@@ -51,6 +58,9 @@ class KVAETrainer:
                 data = torch.unsqueeze(data, 2) # Batch Size X Seq Length X Channels X Height X Width
                 data = (data - data.min()) / (data.max() - data.min())
 
+                # Binarise input data 
+                data = torch.where(data > 0.5, 1.0, 0.0)
+
                 #forward + backward + optimize
                 self.optimizer.zero_grad()
                 loss, recon_loss, latent_ll, elbo_kf, mse  = self.model(data)
@@ -65,6 +75,8 @@ class KVAETrainer:
                 print(f"Latent Loglikelihood: {latent_ll}")
                 print(f"ELBO KF: {elbo_kf}")
                 print(f"MSE: {mse}")
+
+                print("First value of A", self.model.A[0, 0, 0].item())
 
                 n_iterations += 1
                 running_loss += loss.item()
@@ -114,7 +126,7 @@ class KVAETrainer:
 parser = argparse.ArgumentParser()
 parser.add_argument('--epochs', default=1, type=int)
 parser.add_argument('--model', default="KVAE", type=str)
-parser.add_argument('--subdirectory', default="finetuned1", type=str)
+parser.add_argument('--subdirectory', default="finetuned3", type=str)
 
 parser.add_argument('--x_dim', default=1, type=int)
 parser.add_argument('--a_dim', default=2, type=int)
@@ -125,11 +137,11 @@ parser.add_argument('--clip', default=150, type=int)
 parser.add_argument('--scale', default=0.3, type=float)
 
 parser.add_argument('--save_every', default=10, type=int) 
-parser.add_argument('--learning_rate', default=1e-4, type=float)
+parser.add_argument('--learning_rate', default=1e-5, type=float)
 parser.add_argument('--batch_size', default=32, type=int)
 
-# state_dict_path = "saves/kvae/finetuned1/beta=0.0/kvae_state_dict_beta=0.0_25.pth"
-state_dict_path = None 
+state_dict_path = "saves/kvae/finetuned2/scale=0.5/kvae_state_dict_scale=0.5_40.pth"
+# state_dict_path = None 
 
 def main():
     seed = 128
