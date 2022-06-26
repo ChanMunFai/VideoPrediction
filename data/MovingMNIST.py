@@ -160,8 +160,8 @@ if __name__ == "__main__":
     if not os.path.exists(root):
         os.mkdir(root)
 
-    train_set = MovingMNIST(root='.dataset/mnist', train=True, download=True)
-    test_set = MovingMNIST(root='.dataset/mnist', train=False, download=True)
+    train_set = MovingMNIST(root='dataset/mnist', train=True, download=True)
+    test_set = MovingMNIST(root='dataset/mnist', train=False, download=True)
 
     batch_size = 100
 
