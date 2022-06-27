@@ -2,18 +2,63 @@
 
 import torch 
 import torch.nn as nn 
+import torch.nn.functional as F
 import numpy as np
 
+class Encoder64(nn.Module):
+    """ Encodes a 1 X 64 X 64 image 
 
-class Decoder(nn.Module):
-    """ Convolutional variational decoder to decode latent code to image reconstruction
+    Returns
+        a_mu: 
+        a_log_var: 
+        encoder_shape: 
+    """
+
+    def __init__(self, input_channels = 1, a_dim = 2):
+        super(Encoder64, self).__init__()
+        self.input_channels = input_channels
+        self.a_dim = 2
+        self.encode = nn.Sequential(
+                nn.Conv2d(input_channels, 32, 3, stride = 2), 
+                nn.ReLU(), 
+                nn.Conv2d(32, 32, 3, stride = 2), 
+                nn.ReLU(),
+                nn.Conv2d(32, 32, 3, stride = 2), 
+                nn.ReLU(),
+            )
+
+        if input_channels == 1: 
+            self.mu_out = nn.Linear(1568, self.a_dim) 
+            self.log_var_out = nn.Linear(1568, self.a_dim)
+        else: 
+            raise NotImplementedError 
+        
+    def forward(self, x):
+        B, T, NC, H, W = x.size()
+        x = torch.reshape(x, (B * T, NC, H, W))
+
+        x = self.encode(x)
+        encoder_shape = x.size() # [32, 7, 7]
+        x = torch.flatten(x, start_dim = 1)
+
+        a_mu = self.mu_out(x)
+        a_log_var = 0.1 * self.log_var_out(x)
+
+        a_mu = torch.reshape(a_mu, (B, T, self.a_dim))
+        a_log_var = torch.reshape(a_log_var, (B, T, self.a_dim))
+
+        return a_mu, a_log_var, encoder_shape
+
+
+class Decoder64(nn.Module):
+    """ Decodes a latent code of a_dim to a 1 X 64 X 64 image. 
         
     :param a_seq: latent code
     :return: x_mu
     """
 
     def __init__(self, a_dim, enc_shape, device):
-        super(Decoder, self).__init__()
+        super(Decoder64, self).__init__()
         self.device = device 
         self.a_dim = a_dim
         self.enc_shape = enc_shape 
@@ -69,62 +114,120 @@ class Decoder(nn.Module):
         # print(x.size())
         return x
 
-class Encoder(nn.Module):
-    """
-    Returns
-        a_mu: 
-        a_log_var: 
-        encoder_shape: Not returned yet 
-    """
+class Encoder64_simple(nn.Module):
+    """ Encodes a 1 X 64 X 64 image 
 
+    Modified from encoder network I used in VRNN. 
+
+    IGNORE this encoder - it kinda sucks. 
+    """
     def __init__(self, input_channels = 1, a_dim = 2):
-        super(Encoder, self).__init__()
-        self.input_channels = input_channels
-        self.a_dim = 2
+        super(Encoder64_simple, self).__init__()
+        self.a_dim = a_dim 
         self.encode = nn.Sequential(
-                nn.Conv2d(input_channels, 32, 3, stride = 2), 
-                nn.ReLU(), 
-                nn.Conv2d(32, 32, 3, stride = 2), 
-                nn.ReLU(),
-                nn.Conv2d(32, 32, 3, stride = 2), 
-                nn.ReLU(),
-            )
-
+            nn.Conv2d(1, 32, 4, 2, bias = False),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size = 4, stride = 2),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size = 4, stride = 2),
+            nn.ReLU(),
+            nn.Conv2d(128, 256, kernel_size = 4, stride = 2),
+            nn.ReLU(),
+            nn.Flatten()
+        )
         if input_channels == 1: 
-            self.mu_out = nn.Linear(1568, self.a_dim) 
-            self.log_var_out = nn.Linear(1568, self.a_dim)
+            self.mu_out = nn.Linear(1024, self.a_dim) 
+            self.log_var_out = nn.Linear(1024, self.a_dim)
         else: 
             raise NotImplementedError 
-        
+
     def forward(self, x):
         B, T, NC, H, W = x.size()
         x = torch.reshape(x, (B * T, NC, H, W))
 
         x = self.encode(x)
-        encoder_shape = x.size() # [32, 7, 7]
-        x = torch.flatten(x, start_dim = 1)
-
+        
         a_mu = self.mu_out(x)
         a_log_var = 0.1 * self.log_var_out(x)
-
         a_mu = torch.reshape(a_mu, (B, T, self.a_dim))
         a_log_var = torch.reshape(a_log_var, (B, T, self.a_dim))
 
-        return a_mu, a_log_var, encoder_shape
-        
+        return a_mu, a_log_var
+
+class UnFlatten(nn.Module):
+    def forward(self, input):
+        output = input.view(input.size(0), input.size(1), 1, 1)
+        return output
+
+class Decoder64_simple(nn.Module):
+    """ Decodes a latent variable of input_dim to an image of output_channels X 64 X 64. 
+    
+    Code modified from https://github.com/charlio23/bouncing-ball/blob/main/models/modules.py
+    """
+    def __init__(self, input_dim, output_channels):
+        super(Decoder64_simple, self).__init__()
+        self.in_dec = nn.Linear(input_dim, 32*16*16)
+        self.hidden_convs = nn.ModuleList([
+            nn.ConvTranspose2d(in_channels=32,
+                        out_channels=64,
+                        kernel_size=3,
+                        stride=2,
+                        padding=1),
+            nn.ConvTranspose2d(in_channels=64,
+                        out_channels=32,
+                        kernel_size=3,
+                        stride=2,
+                        padding=1)])
+        self.out_conv = nn.Conv2d(in_channels=32,
+                        out_channels=output_channels,
+                        kernel_size=3,
+                        stride=1,
+                        padding=1)
+
+    def forward(self, a_seq):
+        B, T, *_ = a_seq.size()
+        a_seq = torch.reshape(a_seq, (B * T, -1))
+        a_seq = self.in_dec(a_seq).reshape((B * T, -1, 16, 16))
+        for hidden_conv in self.hidden_convs:
+            a_seq = F.relu(hidden_conv(a_seq))
+            a_seq = F.pad(a_seq, (0,1,0,1))
+
+        x_mu = torch.sigmoid(self.out_conv(a_seq))
+        x_mu = torch.reshape(x_mu, (B, T, 64, 64))
+        return x_mu
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 if __name__ == "__main__":
-    encoder = Encoder(input_channels=1, a_dim = 2)
+    encoder = Encoder64(input_channels=1, a_dim = 2)
+    print("Number of parameters in encoder", count_parameters(encoder))
+    # x_seq_sample = torch.rand(32, 10, 1, 64, 64)
+    # a_mu, a_log_var, encoder_shape = encoder(x_seq_sample)
+
+    # print(a_mu.size())
+    # print(a_log_var.size())
+    # print(encoder_shape) 
+
+    decoder = Decoder64(a_dim = 2, enc_shape = [32, 7, 7], device = "cpu")
+    print("Number of parameters in decoder", count_parameters(decoder))
+    # a_seq_sample = torch.rand(32, 10, 2)
+    # decoded = decoder(a_seq_sample)
+    # print(decoded.size())
+
+    encoder = Encoder64_simple(input_channels=1, a_dim = 2)
     x_seq_sample = torch.rand(32, 10, 1, 64, 64)
-    a_mu, a_log_var, encoder_shape = encoder(x_seq_sample)
+    a_mu, a_log_var = encoder(x_seq_sample)
+    # print(a_mu.size())
+    # print(a_log_var.size())
+    print("Number of parameters in encoder", count_parameters(encoder))
 
-    print(a_mu.size())
-    print(a_log_var.size())
-    print(encoder_shape) # wrong - remove first dimension 
-
-    decoder = Decoder(a_dim = 2, enc_shape = [32, 7, 7], device = x_seq_sample.device)
+    decoder = Decoder64_simple(input_dim = 2, output_channels = 1)
     a_seq_sample = torch.rand(32, 10, 2)
     decoded = decoder(a_seq_sample)
-    print(decoded.size())
+    print("Number of parameters in decoder", count_parameters(decoder))
+    
+
 
     
 

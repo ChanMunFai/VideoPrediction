@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal, Normal, Bernoulli
 
-from kvae.encode_decode import Encoder, Decoder 
+from kvae.encode_decode import Encoder64, Decoder64, Decoder64_simple 
 from kvae.elbo_loss import ELBO
 
 class KalmanVAE(nn.Module):
@@ -19,10 +19,11 @@ class KalmanVAE(nn.Module):
 
         self.device = device 
 
-        self.encoder = Encoder(input_channels=1, a_dim = 2).to(self.device)
-        self.decoder = Decoder(a_dim = 2, enc_shape = [32, 7, 7], device = self.device).to(self.device) # change this to encoder shape
+        self.encoder = Encoder64(input_channels=1, a_dim = 2).to(self.device)
+        self.decoder = Decoder64_simple(input_dim = 2, output_channels = 1).to(self.device)
+        # self.decoder = Decoder64(a_dim = 2, enc_shape = [32, 7, 7], device = self.device).to(self.device) # change this to encoder shape
         
-        self.parameter_net = nn.LSTM(self.a_dim, 50, 2, batch_first=True).to(self.device)
+        self.parameter_net = nn.LSTM(self.a_dim, 50, 1, batch_first=True).to(self.device)
         self.alpha_out = nn.Linear(50, self.K).to(self.device) 
 
         # Initialise a_1 (optional)
@@ -103,7 +104,7 @@ class KalmanVAE(nn.Module):
             # print("joint_obs shape", joint_obs.shape) # BS X T X a_dim
         
         dyn_emb, self.state_dyn_net = self.parameter_net(joint_obs)
-        # print(self.state_dyn_net)
+        # print("dyn_emb shape", dyn_emb.size()) # BS X T X 50
         dyn_emb = self.alpha_out(dyn_emb.reshape(B*T,50))
         inter_weight = dyn_emb.softmax(-1)
         
