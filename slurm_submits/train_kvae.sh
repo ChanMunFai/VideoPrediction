@@ -11,9 +11,11 @@ uptime
 
 cd /vol/bitbucket/mc821/VideoPrediction
 
-# python main_kvae.py --scale=0.3 --epoch=200
-python main_kvae.py --scale=0.1 --epochs=150
-python main_kvae.py --scale=0.05 --epochs=150
+dset=BouncingBall 
+
+python main_kvae.py --scale=0.3 --epoch=100 --dataset $dset
+# python main_kvae.py --scale=0.1 --epochs=100 --dataset $dset
+# python main_kvae.py --scale=0.05 --epochs=150
 # python main_kvae.py --scale=0.05 --epochs=200
 # python main_kvae.py --scale=0.5 --epochs=200
 # python main_kvae.py --scale=0.8 --epochs=200
