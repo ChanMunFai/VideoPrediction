@@ -1,4 +1,4 @@
-"""Source: https://github.com/charlio23/bouncing-ball/blob/main/models/KalmanVAE.py """
+"""Modified from: https://github.com/charlio23/bouncing-ball/blob/main/models/KalmanVAE.py """
 
 import numpy as np
 import torch
@@ -276,6 +276,31 @@ class KalmanVAE(nn.Module):
 
         return loss, recon_loss, latent_ll, elbo_kf, mse_loss 
 
+    def reconstruct(self, input): 
+        """ Reconstruct x_hat based on input x. 
+        """
+        (B, T, C, H, W) = input.size()
+        a_sample, _, _ = self._encode(x) 
+        x_hat = self._decode(a_sample).reshape(B,T,C,H,W)
+
+        return x_hat 
+
+    def predict(self, input, pred_len)
+        """ Predicts a sequence of length pred_len given input. 
+        """
+        (B, T, C, H, W) = input.size()
+        a_sample, _, _ = self._encode(x) 
+        smoothed, A_t, C_t = self._kalman_posterior(a_sample) # may not have access to smoothed anymore
+        mu_z_smooth, sigma_z_smooth = smoothed # may need to constrain sigma_z_smooth 
+        z_dist = MultivariateNormal(mu_z_smooth, scale_tril=torch.linalg.cholesky(sigma_z_smooth))
+        z_sample = z_dist.sample()
+
+        ### Predict forward 
+        # Need to predict what a_hat is 
+        # Need to predict what 
+
+
+
     def predict_sequence(self, input, seq_len=None):
         (B,T,C,H,W) = input.size()
         if seq_len is None:
@@ -315,128 +340,5 @@ class KalmanVAE(nn.Module):
 
         return image_seq, obs_seq, latent_seq
 
-
-def trial_forward(): 
-    net = KalmanVAE(x_dim=1, a_dim=2, z_dim=4, K=3)
-    
-    from torch.autograd import Variable
-    sample = Variable(torch.rand((6,10,1,32,32)), requires_grad=True) 
-    (B,T,C,H,W) = sample.size()
-
-    net.forward(sample)
-
-
-def trial_run(): 
-    # Trial run
-    net = KalmanVAE(x_dim=1, a_dim=2, z_dim=4, K=3)
-    
-    from torch.autograd import Variable
-    sample = Variable(torch.rand((6,10,1,64,64)), requires_grad=True) 
-    (B,T,C,H,W) = sample.size()
-
-    torch.autograd.set_detect_anomaly(True)
-
-    # print(net)
-    # print(net.parameter_net) 
-    # print(net.alpha_out)
-
-    ##############################
-    ######## Forward Pass ########
-    ##############################
-
-    ### Encode - p(a), sample a
-
-    a_sample, a_mu, a_log_var = net._encode(sample.reshape(B*T,C,H,W))
-    a_sample = a_sample.reshape(B,T,-1)
-    a_mu = a_mu.reshape(B,T,-1)
-    a_log_var = a_log_var.reshape(B,T,-1)
-
-    # print(a_sample.shape) # BS X Time X a_dim 
-    # print(a_mu.shape) # BS X Time X a_dim 
-    # print(a_log_var.shape) # BS X Time X a_dim 
-
-    ### Posterior - p(z|a), sample z
-
-    smoothed, A_t, C_t = net._kalman_posterior(a_sample, None)
-    mu_z_smoothed, sigma_z_smoothed = smoothed
-    # print(mu_z_smoothed.shape) # T X BS X z_dim X 1 
-    # print(sigma_z_smoothed.shape) # T X BS X z_dim X z_dim 
-    
-    # print(A_t.shape) # BS X T X z_dim X z_dim 
-    # print(C_t.shape) # BS X T X a_dim X z_dim 
-
-    smoothed_z = MultivariateNormal(mu_z_smoothed.squeeze(-1), 
-                                        scale_tril=torch.linalg.cholesky(sigma_z_smoothed))
-    z_sample = smoothed_z.sample()
-    z_sample = z_sample.reshape(B, T, -1)
-    
-    ### LGSSM - p(zt|zt-1) and p(at|zt)
-    a_pred, z_next = net._decode_latent(z_sample, A_t, C_t) 
-    a_pred = a_pred.reshape(B, T, -1)
-    z_next = z_next.reshape(B, T, -1)
-
-    # print(z_sample.shape) # BS X T X z_dim # z_t 
-    # print(a_pred.shape) # BS X T X a_dim # a_t
-    # print(z_next.shape) # BS X T X z_dim # z_t+1 hat 
-
-    ### Decode 
-
-    x_hat = net._decode(a_sample.reshape(B*T,-1)).reshape(B,T,C,H,W)
-
-    # Losses: max ELBO = log p(x_t|a_t) - [log q(a) + log q(z) - log p(a_t | z_t) - log p(z_t| z_t-1)]
-    
-    ##############################
-    ####### log p(x_t|a_t) #######
-    ##############################
-    
-    # NLL loss - can modify that to MSE 
-
-    ##############################
-    #########  log q(a)  #########
-    ##############################
-    
-    q_a = MultivariateNormal(a_mu, torch.diag_embed(torch.exp(a_log_var))) # BS X T X a_dim
-    # pdf of a given q_a 
-    loss_qa = q_a.log_prob(a_sample).mean(dim=0).sum() # summed across all time steps, averaged in batch 
-    
-    ##############################
-    #########  log q(z)  #########
-    ##############################
-
-    loss_qz = smoothed_z.log_prob(z_sample.reshape(T, B, -1)).mean(dim=1).sum()
-
-    ##############################
-    ##### log p(z_t|z_{t-1}) #####
-    ##############################
-
-    # Covariance matrices - are they learnable parameters???
-    Q = 0.08*torch.eye(4).to(torch.float64) 
-
-    mu_z1 = (torch.zeros(4)).to(torch.float64) 
-    sigma_z1 = (20*torch.eye(4)).to(torch.float64) 
-    decoder_z1 = MultivariateNormal(mu_z1, scale_tril=torch.linalg.cholesky(sigma_z1))
-    decoder_z = MultivariateNormal(torch.zeros(4), scale_tril=torch.linalg.cholesky(Q))
-    
-    loss_z1 = decoder_z1.log_prob(z_sample[0]).mean(dim=0)
-    loss_zt_ztminus1 = decoder_z.log_prob((z_sample[:, 1:] - z_next[:,:-1])).mean(dim=0).sum() # averaged across batches, summed over time
-
-    ##############################
-    ####### log p(a_t|z_t) #######
-    ##############################
-
-    R = 0.03*torch.eye(2).to(torch.float64) 
-    decoder_a = MultivariateNormal(torch.zeros(2), scale_tril=torch.linalg.cholesky(R))
-    
-    # print(a_sample.shape) # BS X T X a_dim
-    # print(a_pred.shape) # BS X T X a_dim
-
-    loss_a = decoder_a.log_prob((a_sample - a_pred)).mean(dim=1).sum()
-    # print(loss_a.shape)
-
-    # print(loss_a)
-    
-if __name__=="__main__":
-    trial_run()
-    # trial_forward()
 
     

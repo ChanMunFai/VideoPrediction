@@ -24,11 +24,11 @@ class ELBO():
             x_mu: Dim [B X T X NC X H X W]
             x_var: Dim [B X T X NC X H X W]
             x_hat: Dim [B X T X NC X H X W]
-            a_sample: Dim [BS X Time X a_dim]
-            a_mu: Dim [BS X Time X a_dim]
-            a_log_var: Dim [BS X Time X a_dim]
+            a_sample: Dim [BS X T X a_dim]
+            a_mu: Dim [BS X T X a_dim]
+            a_log_var: Dim [BS X T X a_dim]
             smoothed: tuple containing mu_z_smoothed and sigma_z_smoothed
-            A_t: 
+            A_t: Dim [BS X T X a_dim X a_dim]
             C_t: 
         """
         self.device = x.device
