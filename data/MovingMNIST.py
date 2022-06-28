@@ -84,8 +84,8 @@ class MovingMNIST(data.Dataset):
         if self.target_transform is not None:
             target = _transform_time(target)
 
-        seq = torch.unsqueeze(seq, 2)
-        target = torch.unsqueeze(target, 2)
+        seq = torch.unsqueeze(seq, 1)
+        target = torch.unsqueeze(target, 1)
 
         return seq, target
 
@@ -159,7 +159,7 @@ class MovingMNIST(data.Dataset):
         return fmt_str
 
 if __name__ == "__main__":
-    root = './dataset'
+    root = '/dataset'
     if not os.path.exists(root):
         os.mkdir(root)
 
