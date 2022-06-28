@@ -84,6 +84,9 @@ class MovingMNIST(data.Dataset):
         if self.target_transform is not None:
             target = _transform_time(target)
 
+        seq = torch.unsqueeze(seq, 2)
+        target = torch.unsqueeze(target, 2)
+
         return seq, target
 
     def __len__(self):
@@ -177,18 +180,18 @@ if __name__ == "__main__":
     print('==>>> total trainning batch number: {}'.format(len(train_loader)))
     print('==>>> total testing batch number: {}'.format(len(test_loader)))
 
-    for seq, seq_target in train_loader:
-        print('--- Sample')
-        print('Input:  ', seq.shape)
-        print('Target: ', seq_target.shape)
+    # for seq, seq_target in train_loader:
+    #     print('--- Sample')
+    #     print('Input:  ', seq.shape)
+    #     print('Target: ', seq_target.shape)
 
-        # Plot Frame 1
-        sample_frame1 = seq[0][0]
-        plt.imshow(sample_frame1.cpu().numpy(), cmap='gray')
-        plt.show()
+    #     # Plot Frame 1
+    #     sample_frame1 = seq[0][0]
+    #     plt.imshow(sample_frame1.cpu().numpy(), cmap='gray')
+    #     plt.show()
 
-        sample_frame2 = seq[0][1]
-        plt.imshow(sample_frame2.cpu().numpy(), cmap='gray')
-        plt.show()
+    #     sample_frame2 = seq[0][1]
+    #     plt.imshow(sample_frame2.cpu().numpy(), cmap='gray')
+    #     plt.show()
 
-        break
+    #     break
