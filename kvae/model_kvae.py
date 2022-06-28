@@ -5,24 +5,28 @@ import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal, Normal, Bernoulli
 
-from kvae.encode_decode import Encoder64, Decoder64, Decoder64_simple 
+from kvae.encode_decode import KvaeEncoder, Decoder64, DecoderSimple 
 from kvae.elbo_loss import ELBO
 
 class KalmanVAE(nn.Module):
-    def __init__(self, x_dim, a_dim, z_dim, K, device, scale=0.3):
+    def __init__(self, *args, **kwargs):
         super(KalmanVAE, self).__init__()
-        self.x_dim = x_dim
-        self.a_dim = a_dim
-        self.z_dim = z_dim
-        self.K = K
-        self.scale = scale
+        self.args = kwargs['args']
+        self.x_dim = self.args.x_dim
+        self.a_dim = self.args.a_dim
+        self.z_dim = self.args.z_dim
+        self.K = self.args.K
+        self.scale = self.args.scale
+        self.device = self.args.device 
 
-        self.device = device 
+        if self.args.dataset == "MovingMNIST": 
+            self.encoder = KvaeEncoder(input_channels=1, input_size = 64, a_dim = 2).to(self.device)
+            self.decoder = DecoderSimple(input_dim = 2, output_channels = 1, output_size = 64).to(self.device)
+            # self.decoder = Decoder64(a_dim = 2, enc_shape = [32, 7, 7], device = self.device).to(self.device) # change this to encoder shape
+        elif self.args.dataset == "BouncingBall": 
+            self.encoder = KvaeEncoder(input_channels=1, input_size = 32, a_dim = 2).to(self.device)
+            self.decoder = DecoderSimple(input_dim = 2, output_channels = 1, output_size = 32).to(self.device)
 
-        self.encoder = Encoder64(input_channels=1, a_dim = 2).to(self.device)
-        self.decoder = Decoder64_simple(input_dim = 2, output_channels = 1).to(self.device)
-        # self.decoder = Decoder64(a_dim = 2, enc_shape = [32, 7, 7], device = self.device).to(self.device) # change this to encoder shape
-        
         self.parameter_net = nn.LSTM(self.a_dim, 50, 1, batch_first=True).to(self.device)
         self.alpha_out = nn.Linear(50, self.K).to(self.device) 
 
