@@ -36,15 +36,15 @@ class KvaeEncoder(nn.Module):
                 nn.ReLU(),
                 nn.Conv2d(32, 32, 3, stride = 2), 
                 nn.ReLU(),
-            )
+            ).to(torch.float64) 
 
         if self.input_channels == 1: 
             if self.input_size == 64: 
-                self.mu_out = nn.Linear(1568, self.a_dim) 
-                self.log_var_out = nn.Linear(1568, self.a_dim)
+                self.mu_out = nn.Linear(1568, self.a_dim).to(torch.float64)  
+                self.log_var_out = nn.Linear(1568, self.a_dim).to(torch.float64) 
             elif self.input_size == 32: 
-                self.mu_out = nn.Linear(288, self.a_dim) 
-                self.log_var_out = nn.Linear(288, self.a_dim)
+                self.mu_out = nn.Linear(288, self.a_dim).to(torch.float64)  
+                self.log_var_out = nn.Linear(288, self.a_dim).to(torch.float64) 
         else: 
             raise NotImplementedError 
         

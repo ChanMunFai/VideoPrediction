@@ -1,5 +1,6 @@
 """Modified from: https://github.com/charlio23/bouncing-ball/blob/main/models/KalmanVAE.py """
 
+import argparse 
 import numpy as np
 import torch
 import torch.nn as nn
@@ -27,8 +28,8 @@ class KalmanVAE(nn.Module):
             self.encoder = KvaeEncoder(input_channels=1, input_size = 32, a_dim = 2).to(self.device)
             self.decoder = DecoderSimple(input_dim = 2, output_channels = 1, output_size = 32).to(self.device)
 
-        self.parameter_net = nn.LSTM(self.a_dim, 50, 1, batch_first=True).to(self.device)
-        self.alpha_out = nn.Linear(50, self.K).to(self.device) 
+        self.parameter_net = nn.LSTM(self.a_dim, 50, 1, batch_first=True).to(self.device).to(torch.float64) 
+        self.alpha_out = nn.Linear(50, self.K).to(self.device).to(torch.float64)  
 
         # Initialise a_1 (optional)
         self.a1 = nn.Parameter(torch.zeros(self.a_dim).to(self.device))
@@ -36,15 +37,15 @@ class KalmanVAE(nn.Module):
 
         # Initialise p(z_1) 
         self.mu_0 = (torch.zeros(self.z_dim)).to(torch.float64) 
-        self.sigma_0 = (20*torch.eye(self.z_dim)).to(torch.torch.float64) 
+        self.sigma_0 = (20*torch.eye(self.z_dim)).to(torch.float64) 
 
         # A initialised with identity matrices. B initialised from Gaussian 
-        self.A = nn.Parameter(torch.eye(self.z_dim).unsqueeze(0).repeat(self.K,1,1).to(self.device))
-        self.C = nn.Parameter(torch.randn(self.K, self.a_dim, self.z_dim).to(self.device)*0.05)
+        self.A = nn.Parameter(torch.eye(self.z_dim).unsqueeze(0).repeat(self.K,1,1).to(self.device)).to(torch.float64) 
+        self.C = nn.Parameter(torch.randn(self.K, self.a_dim, self.z_dim).to(self.device)*0.05).to(torch.float64) 
 
         # Covariance matrices - fixed. Noise values obtained from paper. 
-        self.Q = 0.08*torch.eye(self.z_dim).to(torch.torch.float64).to(self.device) 
-        self.R = 0.03*torch.eye(self.a_dim).to(torch.torch.float64).to(self.device) 
+        self.Q = 0.08*torch.eye(self.z_dim).to(torch.float64).to(self.device) 
+        self.R = 0.03*torch.eye(self.a_dim).to(torch.float64).to(self.device) 
 
         self._init_weights()
 
@@ -110,14 +111,14 @@ class KalmanVAE(nn.Module):
         dyn_emb, self.state_dyn_net = self.parameter_net(joint_obs)
         # print("dyn_emb shape", dyn_emb.size()) # BS X T X 50
         dyn_emb = self.alpha_out(dyn_emb.reshape(B*T,50))
-        inter_weight = dyn_emb.softmax(-1)
+        weights = dyn_emb.softmax(-1)
         
         # print("Weights shape", inter_weight.shape) # B*T X K 
         # print("A shape", self.A.shape) # K X z_dim X z_dim  
         # print("C shape", self.C.shape) # K X a_dim X z_dim  
         
-        A_t = torch.matmul(inter_weight, self.A.reshape(self.K,-1)).reshape(B,T,self.z_dim,self.z_dim).to(torch.torch.float64)
-        C_t = torch.matmul(inter_weight, self.C.reshape(self.K,-1)).reshape(B,T,self.a_dim,self.z_dim).to(torch.torch.float64)
+        A_t = torch.matmul(weights, self.A.reshape(self.K,-1)).reshape(B,T,self.z_dim,self.z_dim).to(torch.float64)
+        C_t = torch.matmul(weights, self.C.reshape(self.K,-1)).reshape(B,T,self.a_dim,self.z_dim).to(torch.float64)
         
         return A_t, C_t
 
@@ -285,60 +286,62 @@ class KalmanVAE(nn.Module):
 
         return x_hat 
 
-    def predict(self, input, pred_len)
+    def predict(self, input, pred_len):
         """ Predicts a sequence of length pred_len given input. 
         """
+        ### Seen data
         (B, T, C, H, W) = input.size()
-        a_sample, _, _ = self._encode(x) 
-        smoothed, A_t, C_t = self._kalman_posterior(a_sample) # may not have access to smoothed anymore
-        mu_z_smooth, sigma_z_smooth = smoothed # may need to constrain sigma_z_smooth 
-        z_dist = MultivariateNormal(mu_z_smooth, scale_tril=torch.linalg.cholesky(sigma_z_smooth))
+        a_sample, *_ = self._encode(input) 
+        smoothed, A_t, C_t = self._kalman_posterior(a_sample) # shall I used filtered at prediction time? 
+        mu_z_smooth, sigma_z_smooth = smoothed  
+        z_dist = MultivariateNormal(mu_z_smooth.squeeze(-1), scale_tril=torch.linalg.cholesky(sigma_z_smooth))
         z_sample = z_dist.sample()
 
-        ### Predict forward 
-        # Need to predict what a_hat is 
-        # Need to predict what 
+        ### Unseen data
+        z_sequence = torch.zeros((B, pred_len, self.z_dim))
+        a_sequence = torch.zeros((B, pred_len, self.a_dim))
+        a_t = a_sample[:, -1, :].unsqueeze(1).to(torch.float64) # BS X T X a_dim 
+        z_t = z_sample[:, -1, :].unsqueeze(1).to(torch.float64) # BS X T X z_dim
 
-
-
-    def predict_sequence(self, input, seq_len=None):
-        (B,T,C,H,W) = input.size()
-        if seq_len is None:
-            seq_len = T
-        a_sample, _, _ = self._encode(input.reshape(B*T,C,H,W))
-        a_sample = a_sample.reshape(B,T,-1)
-        filt, A_t, C_t = self._kalman_posterior(a_sample, filter_only=True)
-        filt_mean, filt_cov = filt
-        eps = 1e-6*torch.eye(self.z_dim).to(input.device).reshape(1,self.z_dim,self.z_dim).repeat(B, 1, 1)
-        filt_z = MultivariateNormal(filt_mean[-1].squeeze(-1), scale_tril=torch.linalg.cholesky(filt_cov[-1] + eps))
-        z_sample = filt_z.sample()
-        _shape = [a_sample.size(i) if i!=1 else seq_len for i in range(len(a_sample.size()))]
-        obs_seq = torch.zeros(_shape).to(input.device)
-        _shape = [z_sample.unsqueeze(1).size(i) if i!=1 else seq_len for i in range(len(a_sample.size()))]
-        latent_seq = torch.zeros(_shape).to(input.device)
-        latent_prev = z_sample
-        obs_prev = a_sample[:,-1]
-        for t in range(seq_len):
-            # Compute alpha from a_0:t-1
-            alpha_, cell_state = self.state_dyn_net
-            dyn_emb, self.state_dyn_net = self.parameter_net(obs_prev.unsqueeze(1), (alpha_, cell_state))
+        for t in range(pred_len):
+            hidden_state, cell_state = self.state_dyn_net # Not sure
+           
+            dyn_emb, self.state_dyn_net = self.parameter_net(a_t, (hidden_state, cell_state))
             dyn_emb = self.alpha_out(dyn_emb)
-            inter_weight = dyn_emb.softmax(-1).squeeze(1)
-            ## Compute A_t, C_t
-            A_t = torch.matmul(inter_weight, self.A.reshape(self.K,-1)).reshape(B,self.z_dim,self.z_dim)
-            C_t = torch.matmul(inter_weight, self.C.reshape(self.K,-1)).reshape(B,self.a_dim,self.z_dim)
+            weights = dyn_emb.softmax(-1).squeeze(1).to(torch.float64) 
 
-            # Calculate new z_t
-            ## Update z_t
-            latent_prev = torch.matmul(A_t, latent_prev.unsqueeze(-1)).squeeze(-1)
-            latent_seq[:,t] = latent_prev
-            # Calculate new a_t
-            obs_prev = torch.matmul(C_t, latent_prev.unsqueeze(-1)).squeeze(-1)
-            obs_seq[:,t] = obs_prev
+            A_t = torch.matmul(weights, self.A.reshape(self.K,-1)).reshape(B,-1,self.z_dim,self.z_dim) # only for 1 time step 
+            C_t = torch.matmul(weights, self.C.reshape(self.K,-1)).reshape(B,-1,self.a_dim,self.z_dim)
+            A_t = A_t.to(torch.float64)  # BS X 1 X z_dim X z_dim 
+            C_t = C_t.to(torch.float64)  # BS X 1 X z_dim X a_dim 
 
-        image_seq = self._decode(obs_seq.reshape(B*seq_len,-1)).reshape(B,seq_len,C,H,W)
+            # Generate a_t 
+            a_t = torch.matmul(C_t, z_t.unsqueeze(-1)).squeeze(-1)
+            a_sequence[:,t,:] = a_t.squeeze(1)
 
-        return image_seq, obs_seq, latent_seq
+            # Generate z_t+1
+            z_t = torch.matmul(A_t, z_t.unsqueeze(-1)).squeeze(-1)
+            z_sequence[:,t,:] = z_t.squeeze(1) 
 
+        pred_seq = self._decode(a_sequence).reshape(B,pred_len,C,H,W)
+        print(pred_seq.size())
+        
+        return pred_seq, a_sequence, z_sequence
 
-    
+if __name__ == "__main__": 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', default = "BouncingBall", type = str, 
+                    help = "choose between [MovingMNIST, BouncingBall]")
+    parser.add_argument('--x_dim', default=1, type=int)
+    parser.add_argument('--a_dim', default=2, type=int)
+    parser.add_argument('--z_dim', default=4, type=int)
+    parser.add_argument('--K', default=3, type=int)
+    parser.add_argument('--scale', default=0.3, type=float)
+    parser.add_argument('--batch_size', default=32, type=int)
+    parser.add_argument('--device', default="cpu", type=str)
+    args = parser.parse_args()
+
+    kvae = KalmanVAE(args = args)
+    x_data = torch.rand((32, 10, 1, 32, 32)).to(torch.float64)  # BS X T X NC X H X W
+    kvae.predict(x_data, pred_len = 50)
+        
