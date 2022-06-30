@@ -235,6 +235,53 @@ class VRNN(nn.Module):
 
         return predicted_frames
 
+    def predict_new(self, input, target): 
+        total_len = input.size(1) + target.size(1)
+        train_len = input.size(1)
+        predicted_frames = torch.full_like(target, 0) 
+        h = torch.zeros(self.n_layers, input.size(0), self.h_dim, device=device)
+
+        for t in range(total_len):
+            if t < input.size(1): # seen data
+                xt = input[:,t,:,:,:]
+                xt_tilde = self.embed(xt)
+
+                #encoder and reparameterisation
+                enc_t = self.enc(torch.cat([xt_tilde, h[-1]], 1))
+                enc_mean_t = self.enc_mean(enc_t)
+                enc_std_t = self.enc_std(enc_t)
+
+                zt = self._reparameterized_sample(enc_mean_t, enc_std_t)
+
+                #decoding
+                zt_tilde = self.phi_z(zt)
+                input_latent = torch.cat([zt_tilde, h[-1]], 1)
+                xt_hat = self.dec(input_latent)
+
+            else: 
+                xt = xt_hat # use predicted xt instead of actual xt
+                xt_tilde = self.embed(xt)
+
+                #encoder and reparameterisation
+                enc_t = self.enc(torch.cat([xt_tilde, h[-1]], 1))
+                enc_mean_t = self.enc_mean(enc_t)
+                enc_std_t = self.enc_std(enc_t)
+
+                zt = self._reparameterized_sample(enc_mean_t, enc_std_t)
+
+                #decoding
+                zt_tilde = self.phi_z(zt)
+                input_latent = torch.cat([zt_tilde, h[-1]], 1)
+                xt_hat = self.dec(input_latent)
+
+                predicted_frames[:,t-train_len] = xt_hat
+
+            #recurrence
+            _, h = self.rnn(torch.cat([xt_tilde, zt_tilde], 1).unsqueeze(0), h)
+
+        return predicted_frames
+
+
     def reset_parameters(self, stdv=1e-1):
         for weight in self.parameters():
             weight.data.normal_(0, stdv)

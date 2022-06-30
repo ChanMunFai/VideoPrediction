@@ -16,7 +16,8 @@ from vrnn.model_vrnn import VRNN
 from data.MovingMNIST import MovingMNIST
 
 model_version = "v1"
-state_dict_path = f'saves/vrnn/{model_version}/important/vrnn_state_dict_v1_beta=0.4_step=1000000_149.pth'
+dataset = "MovingMNIST"
+state_dict_path = f'saves/{dataset}/vrnn/{model_version}/important/vrnn_state_dict_v1_beta=0.4_step=1000000_149.pth'
 
 det_or_stoch = "stochastic"
 stage = "stage_c"
@@ -50,13 +51,13 @@ model.load_state_dict(state_dict)
 model.to(device)
 
 # Load in dataset
-test_set = MovingMNIST(root='.dataset/mnist', train=False, download=True)
+test_set = MovingMNIST(root='dataset/mnist', train=False, download=True)
 test_loader = torch.utils.data.DataLoader(
                 dataset=test_set,
                 batch_size=batch_size,
                 shuffle=False)
 
-train_set = MovingMNIST(root='.dataset/mnist', train=True, download=True)
+train_set = MovingMNIST(root='dataset/mnist', train=True, download=True)
 train_loader = torch.utils.data.DataLoader(
                 dataset=train_set,
                 batch_size=batch_size,
@@ -96,24 +97,26 @@ def plot_images(
     batch_item: example number"""
 
     if train == True: 
-        data, _ = next(iter(train_loader))
+        data, targets = next(iter(train_loader))
     else: 
-        data, _ = next(iter(test_loader))
+        data, targets = next(iter(test_loader))
 
     data = data.to(device)
-    data = torch.unsqueeze(data, 2)
     data = (data - data.min()) / (data.max() - data.min())
+
+    targets = targets.to(device)
+    targets = (targets - targets.min()) / (targets.max() - targets.min())
 
     if train == True: 
         if det_or_stoch == "determistic": 
-            output_dir = f"results/images/{model_version}/{det_or_stoch}/train/"
+            output_dir = f"results/{dataset}/{model_version}/{det_or_stoch}/train/"
         elif det_or_stoch == "stochastic": 
-            output_dir = f"results/images/{model_version}/{det_or_stoch}/{stage}/train/"
+            output_dir = f"results/{dataset}/VRNN/{model_version}/" # we just care about this
     else: 
         if det_or_stoch == "determistic": 
-            output_dir = f"results/images/{model_version}/{det_or_stoch}/test/"
+            output_dir = f"results/{dataset}/{model_version}/{det_or_stoch}/test/"
         elif det_or_stoch == "stochastic": 
-            output_dir = f"results/images/{model_version}/{det_or_stoch}/{stage}/test/"
+            output_dir = f"results/{dataset}/{model_version}/{det_or_stoch}/{stage}/test/"
 
     checkdir(output_dir)
     
@@ -166,28 +169,32 @@ def plot_images(
     # Predicted frames - unseen future
     if prediction == True:
         with torch.no_grad():
-            current_frames = data[batch_item].unsqueeze(0)
-            seen_frames = current_frames[0][0:5]
-            true_future_frames = current_frames[0][5:]
+            seen_frames = data[batch_item].unsqueeze(0)
+            ground_truth_frames = targets[batch_item].unsqueeze(0)
 
-            seen_frames = torchvision.utils.make_grid(
+            predicted_frames = model.predict_new(seen_frames, ground_truth_frames)
+            
+            seen_frames = seen_frames.squeeze(0)
+            ground_truth_frames = ground_truth_frames.squeeze(0)
+            predicted_frames = predicted_frames.squeeze(0)
+            
+            seen_frames_grid = torchvision.utils.make_grid(
                                         seen_frames,
                                         seen_frames.size(0)
                                         )
 
-            future_predicted_frames = model.predict(current_frames)
-            future_predicted_frames = torchvision.utils.make_grid(
-                                        future_predicted_frames,
-                                        future_predicted_frames.size(0)
-                                        )
+            ground_truth_frames_grid = torchvision.utils.make_grid(
+                                    ground_truth_frames,
+                                    ground_truth_frames.size(0)
+                                    )
 
-            true_future_frames = torchvision.utils.make_grid(
-                                        true_future_frames,
-                                        true_future_frames.size(0)
-                                        )
+            predicted_frames_grid = torchvision.utils.make_grid(
+                                    predicted_frames,
+                                    predicted_frames.size(0)
+                                    )
 
             stitched_image = torchvision.utils.make_grid(
-                                        [seen_frames, true_future_frames,future_predicted_frames],
+                                        [seen_frames_grid, ground_truth_frames_grid, predicted_frames_grid],
                                         1
                                         )
 
@@ -204,27 +211,28 @@ def calc_losses_over_time(train = True, batch_item = 0):
     mse = nn.MSELoss(reduction = 'mean') # pixel-wise MSE 
     
     if train == True: 
-        data, _ = next(iter(train_loader))
+        data, targets = next(iter(train_loader))
     else: 
-        data, _ = next(iter(test_loader))
+        data, targets = next(iter(test_loader))
 
     data = data.to(device)
-    data = torch.unsqueeze(data, 2)
     data = (data - data.min()) / (data.max() - data.min())
+
+    targets = targets.to(device)
+    targets = (targets - targets.min()) / (targets.max() - targets.min())
 
     mse_loss = []
 
     with torch.no_grad():
-        current_frames = data[batch_item].unsqueeze(0)
-        seen_frames = current_frames[0][0:5]
-        true_future_frames = current_frames[0][5:]
+        seen_frames = data[batch_item].unsqueeze(0)
+        ground_truth_frames = targets[batch_item].unsqueeze(0)
+        predicted_frames = model.predict_new(seen_frames, ground_truth_frames)
 
-        future_predicted_frames = model.predict(current_frames)
+        seen_frames = seen_frames.squeeze(0)
+        ground_truth_frames = ground_truth_frames.squeeze(0)
+        predicted_frames = predicted_frames.squeeze(0)
 
-        # print(true_future_frames.shape) # (5, 1, 64, 64)
-        # print(future_predicted_frames.shape)
-
-        for i, j in zip(true_future_frames, future_predicted_frames): 
+        for i, j in zip(ground_truth_frames, predicted_frames): 
             mse_loss.append(mse(i, j).item())
 
     return mse_loss
@@ -232,14 +240,14 @@ def calc_losses_over_time(train = True, batch_item = 0):
 def plot_losses_over_time(train = True):
     if train == True: 
         if det_or_stoch == "determistic": 
-            output_dir = f"results/images/{model_version}/{det_or_stoch}/train/"
+            output_dir = f"results/{dataset}/{model_version}/{det_or_stoch}/train/"
         elif det_or_stoch == "stochastic": 
-            output_dir = f"results/images/{model_version}/{det_or_stoch}/{stage}/train/"
+            output_dir = f"results/{dataset}/VRNN/{model_version}/"
     else: 
         if det_or_stoch == "determistic": 
-            output_dir = f"results/images/{model_version}/{det_or_stoch}/test/"
+            output_dir = f"results/{dataset}/{model_version}/{det_or_stoch}/test/"
         elif det_or_stoch == "stochastic": 
-            output_dir = f"results/images/{model_version}/{det_or_stoch}/{stage}/test/"
+            output_dir = f"results/{dataset}/{model_version}/{det_or_stoch}/{stage}/test/"
 
     combined_mse_over_time = []
 
@@ -247,6 +255,7 @@ def plot_losses_over_time(train = True):
         combined_mse_over_time.append(calc_losses_over_time(train = train, batch_item = i)) 
 
     combined_mse_over_time = np.array(combined_mse_over_time)
+    print(combined_mse_over_time.shape)
 
     avg_mse_over_time = np.mean(combined_mse_over_time, axis = 0)
 
@@ -257,7 +266,7 @@ def plot_losses_over_time(train = True):
     #     plt.plot(j)
 
     plt.title("MSE between ground truth and predicted frame over time")
-    plt.xticks(np.arange(0, 5, 1.0))
+    plt.xticks(np.arange(0, 10, 1.0))
     plt.ylabel('MSE')
     plt.xlabel('Time')
 
