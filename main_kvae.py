@@ -28,14 +28,14 @@ class KVAETrainer:
         # Change out encoder and decoder 
         self.model = KalmanVAE(args = self.args).to(self.args.device)
         
-        if self.args.initial: 
+        if self.args.initial == "True": 
             parameters = list(self.model.encoder.parameters()) + list(self.model.decoder.parameters()) \
                         + [self.model.a1, self.model.A, self.model.C]
         else: 
             parameters = list(self.model.encoder.parameters()) + list(self.model.decoder.parameters()) \
                         + list(self.model.parameter_net.parameters()) + list(self.model.alpha_out.parameters()) \
                         + [self.model.a1, self.model.A, self.model.C]
-        
+
         self.optimizer = torch.optim.Adam(parameters, lr=self.args.learning_rate)
     
         if state_dict_path: 
@@ -66,7 +66,6 @@ class KVAETrainer:
 
                 # Binarise input data 
                 data = torch.where(data > 0.5, 1.0, 0.0)
-                print(data.size())
 
                 #forward + backward + optimize
                 self.optimizer.zero_grad()
@@ -131,10 +130,10 @@ class KVAETrainer:
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', default = "BouncingBall", type = str, 
+parser.add_argument('--dataset', default = "MovingMNIST", type = str, 
                     help = "choose between [MovingMNIST, BouncingBall]")
 parser.add_argument('--epochs', default=1, type=int)
-parser.add_argument('--subdirectory', default="v1/finetuned1", type=str)
+parser.add_argument('--subdirectory', default="v1/finetuned5", type=str)
 parser.add_argument('--model', default="KVAE", type=str)
 
 parser.add_argument('--x_dim', default=1, type=int)
@@ -151,8 +150,6 @@ parser.add_argument('--batch_size', default=32, type=int)
 parser.add_argument('--initial', default="False", type=str, help = "Does not optimise parameters of DPN for first few epochs.")
 
 
-
-
 def main():
     seed = 128
     torch.manual_seed(seed)
@@ -164,12 +161,13 @@ def main():
     else:
         args.device = torch.device('cpu')
 
-    if args.dataset == "MovingMNSIT": 
-        state_dict_path = "saves/kvae/v3/finetuned0/scale=0.3/kvae_state_dict_scale=0.3_149.pth"
+    if args.dataset == "MovingMNIST": 
+        state_dict_path = "saves/MovingMNIST/kvae/v3/finetuned1/scale=0.2/kvae_state_dict_scale=0.2_99.pth"
         # state_dict_path = None 
     elif args.dataset == "BouncingBall": 
-        state_dict_path = None 
-
+        state_dict_path = "saves/BouncingBall/kvae/v1/finetuned4/scale=0.3/kvae_state_dict_scale=0.3_99.pth" 
+        # state_dict_path = None 
+        
     # set up logging
     log_fname = f'{args.model}_scale={args.scale}_{args.epochs}.log'
     log_dir = f"logs/{args.dataset}/{args.model}/{args.subdirectory}/"
@@ -181,7 +179,7 @@ def main():
 
     # Datasets
     if args.dataset == "MovingMNIST": 
-        train_set = MovingMNIST(root='.dataset/mnist', train=True, download=True)
+        train_set = MovingMNIST(root='dataset/mnist', train=True, download=True)
         train_loader = torch.utils.data.DataLoader(
                     dataset=train_set,
                     batch_size=args.batch_size,
@@ -197,7 +195,6 @@ def main():
 
     
     trainer = KVAETrainer(state_dict_path= state_dict_path, args=args)
-
     trainer.train(train_loader)
 
 if __name__ == "__main__":
