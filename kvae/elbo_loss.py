@@ -49,8 +49,8 @@ class ELBO():
         self.a_dim = self.a_mu.size(2)
 
         # Fixed covariance matrices 
-        self.Q = 0.08*torch.eye(self.z_dim).to(torch.float64).to(self.device) 
-        self.R = 0.03*torch.eye(self.a_dim).to(torch.float64).to(self.device) 
+        self.Q = 0.08*torch.eye(self.z_dim).double().to(self.device) 
+        self.R = 0.03*torch.eye(self.a_dim).double().to(self.device) 
 
         # Initialise p(z_1) 
         self.mu_z0 = (torch.zeros(self.z_dim)).double().to(self.device)
@@ -200,7 +200,7 @@ class ELBO():
             z_sample: sample of dimension 
 
         Returns: 
-            loss: torch.float64 
+            loss: float 
         """
         loss_qz = self.smoothed_z.log_prob(self.z_sample).mean(dim=0).sum().to(self.device)
         return loss_qz

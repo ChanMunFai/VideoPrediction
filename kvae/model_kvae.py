@@ -28,24 +28,24 @@ class KalmanVAE(nn.Module):
             self.encoder = KvaeEncoder(input_channels=1, input_size = 32, a_dim = 2).to(self.device)
             self.decoder = DecoderSimple(input_dim = 2, output_channels = 1, output_size = 32).to(self.device)
 
-        self.parameter_net = nn.LSTM(self.a_dim, 50, 1, batch_first=True).to(self.device).to(torch.float64) 
-        self.alpha_out = nn.Linear(50, self.K).to(self.device).to(torch.float64)  
+        self.parameter_net = nn.LSTM(self.a_dim, 50, 1, batch_first=True).to(self.device) 
+        self.alpha_out = nn.Linear(50, self.K).to(self.device)
 
         # Initialise a_1 (optional)
-        self.a1 = nn.Parameter(torch.zeros(self.a_dim).to(self.device))
+        self.a1 = nn.Parameter(torch.zeros(self.a_dim, requires_grad=True, device = self.device))
         self.state_dyn_net = None
 
         # Initialise p(z_1) 
-        self.mu_0 = (torch.zeros(self.z_dim)).to(torch.float64) 
-        self.sigma_0 = (20*torch.eye(self.z_dim)).to(torch.float64) 
+        self.mu_0 = (torch.zeros(self.z_dim)).double()
+        self.sigma_0 = (20*torch.eye(self.z_dim)).double()
 
         # A initialised with identity matrices. B initialised from Gaussian 
-        self.A = nn.Parameter(torch.eye(self.z_dim).unsqueeze(0).repeat(self.K,1,1).to(self.device)).to(torch.float64) 
-        self.C = nn.Parameter(torch.randn(self.K, self.a_dim, self.z_dim).to(self.device)*0.05).to(torch.float64) 
+        self.A = nn.Parameter(torch.eye(self.z_dim).unsqueeze(0).repeat(self.K,1,1).to(self.device))
+        self.C = nn.Parameter(torch.randn(self.K, self.a_dim, self.z_dim).to(self.device)*0.05)
 
         # Covariance matrices - fixed. Noise values obtained from paper. 
-        self.Q = 0.08*torch.eye(self.z_dim).to(torch.float64).to(self.device) 
-        self.R = 0.03*torch.eye(self.a_dim).to(torch.float64).to(self.device) 
+        self.Q = 0.08*torch.eye(self.z_dim).double().to(self.device) 
+        self.R = 0.03*torch.eye(self.a_dim).double().to(self.device) 
 
         self._init_weights()
 
@@ -117,8 +117,8 @@ class KalmanVAE(nn.Module):
         # print("A shape", self.A.shape) # K X z_dim X z_dim  
         # print("C shape", self.C.shape) # K X a_dim X z_dim  
         
-        A_t = torch.matmul(weights, self.A.reshape(self.K,-1)).reshape(B,T,self.z_dim,self.z_dim).to(torch.float64)
-        C_t = torch.matmul(weights, self.C.reshape(self.K,-1)).reshape(B,T,self.a_dim,self.z_dim).to(torch.float64)
+        A_t = torch.matmul(weights, self.A.reshape(self.K,-1)).reshape(B,T,self.z_dim,self.z_dim).double()
+        C_t = torch.matmul(weights, self.C.reshape(self.K,-1)).reshape(B,T,self.a_dim,self.z_dim).double()
         
         return A_t, C_t
 
@@ -143,19 +143,19 @@ class KalmanVAE(nn.Module):
         obs = obs.reshape(T, B, -1) # place T in first dimension for easier calculations 
         obs = obs.unsqueeze(-1)
 
-        mu_filt = torch.zeros(T, B, self.z_dim, 1).to(obs.device).to(torch.float64)
-        sigma_filt = torch.zeros(T, B, self.z_dim, self.z_dim).to(obs.device).to(torch.float64)
+        mu_filt = torch.zeros(T, B, self.z_dim, 1).to(obs.device).double()
+        sigma_filt = torch.zeros(T, B, self.z_dim, self.z_dim).to(obs.device).double()
 
-        mu_t = self.mu_0.expand(B,-1).unsqueeze(-1).to(torch.float64).to(self.device) 
-        sigma_t = self.sigma_0.expand(B,-1,-1).to(torch.float64).to(self.device)
+        mu_t = self.mu_0.expand(B,-1).unsqueeze(-1).double().to(self.device) 
+        sigma_t = self.sigma_0.expand(B,-1,-1).double().to(self.device)
         mu_predicted = mu_t
         sigma_predicted = sigma_t 
 
         mu_pred = torch.zeros_like(mu_filt).to(self.device) # A u_t
         sigma_pred = torch.zeros_like(sigma_filt).to(self.device) # P_t
 
-        A = A.to(torch.float64).to(self.device) 
-        C = C.to(torch.float64).to(self.device)
+        A = A.double().to(self.device) 
+        C = C.double().to(self.device)
 
         for t in range(T): 
             mu_pred[t] = mu_predicted
@@ -181,7 +181,7 @@ class KalmanVAE(nn.Module):
                 sigma_predicted = torch.matmul(torch.matmul(A[:,t+1,:, :], sigma_t), torch.transpose(A[:,t+1,:, :], 1, 2)) + self.Q 
                 mu_predicted = torch.matmul(A[:,t+1,:, :], mu_t)
 
-        return (mu_filt.to(torch.float64), sigma_filt.to(torch.float64)), (mu_pred.to(torch.float64), sigma_pred.to(torch.float64))
+        return (mu_filt, sigma_filt), (mu_pred, sigma_pred)
 
         
     def smooth_posterior(self, A, filtered, predicted): 
@@ -203,18 +203,18 @@ class KalmanVAE(nn.Module):
         mu_filt, sigma_filt = filtered
         mu_pred, sigma_pred = predicted
 
-        mu_filt = mu_filt.to(torch.float64)
-        sigma_filt= sigma_filt.to(torch.float64)
-        mu_pred = mu_pred.to(torch.float64)
-        sigma_pred = sigma_pred.to(torch.float64)
+        mu_filt = mu_filt
+        sigma_filt= sigma_filt
+        mu_pred = mu_pred
+        sigma_pred = sigma_pred
 
-        mu_z_smooth = torch.zeros_like(mu_filt).to(torch.float64).to(self.device)
-        sigma_z_smooth = torch.zeros_like(sigma_filt).to(torch.float64).to(self.device)
+        mu_z_smooth = torch.zeros_like(mu_filt).to(self.device)
+        sigma_z_smooth = torch.zeros_like(sigma_filt).to(self.device)
         mu_z_smooth[-1] = mu_filt[-1]
         sigma_z_smooth[-1] = sigma_filt[-1]
 
         (T, *_) = mu_filt.size()
-        A = A.to(torch.float64).to(self.device)
+        A = A.double().to(self.device)
 
         for t in reversed(range(T-1)):
             J = torch.matmul(sigma_filt[t], torch.matmul(torch.transpose(A[:,t+1,:,:], 1,2), torch.inverse(sigma_pred[t+1])))
@@ -281,8 +281,10 @@ class KalmanVAE(nn.Module):
         """ Reconstruct x_hat based on input x. 
         """
         (B, T, C, H, W) = input.size()
-        a_sample, _, _ = self._encode(x) 
-        x_hat = self._decode(a_sample).reshape(B,T,C,H,W)
+
+        with torch.no_grad(): 
+            a_sample, _, _ = self._encode(input) 
+            x_hat = self._decode(a_sample).reshape(B,T,C,H,W)
 
         return x_hat 
 
@@ -300,20 +302,20 @@ class KalmanVAE(nn.Module):
         ### Unseen data
         z_sequence = torch.zeros((B, pred_len, self.z_dim))
         a_sequence = torch.zeros((B, pred_len, self.a_dim))
-        a_t = a_sample[:, -1, :].unsqueeze(1).to(torch.float64) # BS X T X a_dim 
-        z_t = z_sample[:, -1, :].unsqueeze(1).to(torch.float64) # BS X T X z_dim
+        a_t = a_sample[:, -1, :].unsqueeze(1) # BS X T X a_dim
+        z_t = z_sample[:, -1, :].unsqueeze(1).to(torch.float32) # BS X T X z_dim
 
         for t in range(pred_len):
             hidden_state, cell_state = self.state_dyn_net # Not sure
-           
+      
+            # print(a_t.dtype, z_t.dtype, hidden_state.dtype, cell_state.dtype)
+
             dyn_emb, self.state_dyn_net = self.parameter_net(a_t, (hidden_state, cell_state))
             dyn_emb = self.alpha_out(dyn_emb)
-            weights = dyn_emb.softmax(-1).squeeze(1).to(torch.float64) 
+            weights = dyn_emb.softmax(-1).squeeze(1)
 
             A_t = torch.matmul(weights, self.A.reshape(self.K,-1)).reshape(B,-1,self.z_dim,self.z_dim) # only for 1 time step 
             C_t = torch.matmul(weights, self.C.reshape(self.K,-1)).reshape(B,-1,self.a_dim,self.z_dim)
-            A_t = A_t.to(torch.float64)  # BS X 1 X z_dim X z_dim 
-            C_t = C_t.to(torch.float64)  # BS X 1 X z_dim X a_dim 
 
             # Generate a_t 
             a_t = torch.matmul(C_t, z_t.unsqueeze(-1)).squeeze(-1)
@@ -324,7 +326,7 @@ class KalmanVAE(nn.Module):
             z_sequence[:,t,:] = z_t.squeeze(1) 
 
         pred_seq = self._decode(a_sequence).reshape(B,pred_len,C,H,W)
-        print(pred_seq.size())
+        print("Prediction Size", pred_seq.size())
         
         return pred_seq, a_sequence, z_sequence
 
@@ -342,6 +344,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     kvae = KalmanVAE(args = args)
-    x_data = torch.rand((32, 10, 1, 32, 32)).to(torch.float64)  # BS X T X NC X H X W
-    kvae.predict(x_data, pred_len = 50)
+    x_data = torch.rand((32, 10, 1, 32, 32))  # BS X T X NC X H X W
+
+
         
