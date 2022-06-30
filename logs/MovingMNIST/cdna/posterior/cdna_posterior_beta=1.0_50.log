@@ -1,0 +1,5 @@
+INFO:root:Namespace(batch_size=52, beta=1.0, clip=10, device=device(type='cuda'), epochs=50, learning_rate=1e-06, model='cdna', save_every=10)
+INFO:root:Starting SV2P training on Posterior Network.
+INFO:root:Train Loss, KLD, MSE
+INFO:root:188.72748908, 13.56375960, 175.16372935
+INFO:root:186.92125816, 11.87766014, 175.04359804

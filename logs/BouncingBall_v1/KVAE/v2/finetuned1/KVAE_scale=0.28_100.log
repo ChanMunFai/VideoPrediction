@@ -1,0 +1,1 @@
+INFO:root:Namespace(K=3, a_dim=2, batch_size=32, clip=150, dataset='BouncingBall', device=device(type='cuda'), epochs=100, initial='False', learning_rate=1e-06, model='KVAE', save_every=10, scale=0.28, subdirectory='v2/finetuned1', x_dim=1, z_dim=4)

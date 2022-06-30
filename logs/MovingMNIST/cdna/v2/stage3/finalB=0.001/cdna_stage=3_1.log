@@ -1,0 +1,4 @@
+INFO:root:Namespace(batch_size=52, beta_end=0.001, beta_start=0, clip=10, device=device(type='cuda'), epochs=1, learning_rate=1e-06, model='cdna', save_every=25, stage=3)
+INFO:root:State Dictionary Path (Stochastic) is: saves/sv2p/stage2/sv2p_state_dict_99.pth
+INFO:root:Starting SV2P training on Stage 3 for 1 epochs.
+INFO:root:Train Loss, KLD, MSE

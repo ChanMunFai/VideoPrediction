@@ -1,0 +1,4 @@
+INFO:root:Namespace(K=3, a_dim=2, batch_size=32, clip=150, device=device(type='cpu'), epochs=1, initial='False', learning_rate=0.0001, model='KVAE', save_every=10, scale=0.3, subdirectory='finetuned1', x_dim=1, z_dim=4)
+INFO:root:Loaded State Dict from saves/kvae/finetuned0/scale=0.3/kvae_state_dict_scale=0.3_19.pth.
+INFO:root:Starting KVAE training for 1 epochs.
+INFO:root:Train Loss, Reconstruction Loss, log q(a), ELBO_KF, MSE

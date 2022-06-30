@@ -1,0 +1,37 @@
+INFO:root:Namespace(batch_size=52, beta_end=0.001, beta_start=0, clip=10, device=device(type='cuda'), epochs=300, learning_rate=1e-06, model='cdna', save_every=25, stage=0)
+INFO:root:State Dictionary Path (Deterministic) is: saves/sv2p/stage0/finetuned2/sv2p_cdna_state_dict_299.pth
+INFO:root:Starting SV2P training on Stage 0 for 300 epochs.
+INFO:root:Train Loss
+INFO:root:165.87459538
+INFO:root:164.87673336
+INFO:root:164.46464074
+INFO:root:164.15212601
+INFO:root:164.18930676
+INFO:root:163.81772070
+INFO:root:163.71446482
+INFO:root:163.75021459
+INFO:root:163.70264566
+INFO:root:163.56122098
+INFO:root:163.35550576
+INFO:root:163.34798747
+INFO:root:163.14111644
+INFO:root:163.14137031
+INFO:root:162.90204164
+INFO:root:163.08935240
+INFO:root:162.80763613
+INFO:root:162.81050583
+INFO:root:162.71078614
+INFO:root:162.54488320
+INFO:root:162.70580502
+INFO:root:162.59535209
+INFO:root:162.22821725
+INFO:root:162.31179468
+INFO:root:162.36270264
+INFO:root:162.22105460
+INFO:root:162.31194753
+INFO:root:162.25325512
+INFO:root:161.94146018
+INFO:root:162.17106935
+INFO:root:162.09050014
+INFO:root:162.08675814
+INFO:root:162.07914120
