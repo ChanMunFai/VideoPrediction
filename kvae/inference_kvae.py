@@ -47,11 +47,18 @@ def plot_predictions(x, target, pred_len, plot_len = None):
                 stitched_frames.cpu().permute(1, 2, 0).numpy()
                 )
 
-def plot_reconstructions(x, plot_len):
-    x_reconstructed = kvae.reconstruct(x)
+def plot_reconstructions(x, plot_len, reconstruct_kalman = True):
+    if reconstruct_kalman == True: 
+        x_reconstructed = kvae.reconstruct_kalman(x)
+    else: 
+        x_reconstructed = kvae.reconstruct(x)
     
     for batch_item, i  in enumerate(x_reconstructed):
-        output_dir = f"results/{args.dataset}/KVAE/attempt2/reconstructions/"
+        if reconstruct_kalman == False: 
+            output_dir = f"results/{args.dataset}/KVAE/attempt2/reconstructions/"
+        else: 
+            output_dir = f"results/{args.dataset}/KVAE/attempt2/reconstructions_kf/"
+        
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
@@ -62,9 +69,20 @@ def plot_reconstructions(x, plot_len):
                                         i.size(0)
                                         )
 
+        ground_truth = x[batch_item,:plot_len,:,:,:]
+        ground_truth_frames = torchvision.utils.make_grid(
+                                        ground_truth,
+                                        ground_truth.size(0)
+                                        )
+
+        stitched_frames = torchvision.utils.make_grid(
+                                        [ground_truth_frames, reconstructed_frames],
+                                        1
+                                        )
+
         plt.imsave(
                 output_dir + f"reconstructions_{batch_item}.jpeg",
-                reconstructed_frames.cpu().permute(1, 2, 0).numpy()
+                stitched_frames.cpu().permute(1, 2, 0).numpy()
                 )
 
 def plot_loss_over_time():
@@ -72,7 +90,7 @@ def plot_loss_over_time():
 
 
 if __name__ == "__main__": 
-    state_dict_path = "saves/BouncingBall/kvae/v1/finetuned4/scale=0.3/kvae_state_dict_scale=0.3_99.pth" 
+    state_dict_path = "saves/BouncingBall/kvae/finetuned2/scale=0.3/kvae_state_dict_scale=0.3_99.pth" 
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default = "BouncingBall", type = str, 
@@ -98,7 +116,7 @@ if __name__ == "__main__":
                     shuffle=False)
 
     elif args.dataset == "BouncingBall": 
-        train_set = BouncingBallDataLoader('dataset/bouncing_ball/v1/train')
+        train_set = BouncingBallDataLoader('dataset/bouncing_ball/v2/train')
         train_loader = torch.utils.data.DataLoader(
                     dataset=train_set, 
                     batch_size=args.batch_size, 
@@ -113,8 +131,8 @@ if __name__ == "__main__":
     target = (target - target.min()) / (target.max() - target.min())
     target = torch.where(target > 0.5, 1.0, 0.0)
 
-    plot_predictions(data, target, pred_len = 50)  
-    # plot_reconstructions(data, 50)
+    plot_predictions(data, target, pred_len = 20)  
+    # plot_reconstructions(data, 20, reconstruct_kalman = True)
 
     # pred_seq, *_ = kvae.predict(data, pred_len = 50)
     # print(pred_seq[0,0])

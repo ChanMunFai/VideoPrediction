@@ -10,14 +10,19 @@ import torch
 import torch.nn as nn
 import torch.utils
 import torch.utils.data
+import torchvision 
 from torchvision import datasets, transforms
 from torch.autograd import Variable
 from torch.utils.tensorboard import SummaryWriter
+from torch.optim.lr_scheduler import ExponentialLR
 
 import matplotlib.pyplot as plt
 from kvae.model_kvae import KalmanVAE
 from data.MovingMNIST import MovingMNIST
 from dataset.bouncing_ball.bouncing_data import BouncingBallDataLoader
+
+import wandb
+wandb.init(project="KVAE_bouncing_ball")
 
 class KVAETrainer:
     def __init__(self, state_dict_path = None, *args, **kwargs):
@@ -37,6 +42,7 @@ class KVAETrainer:
                         + [self.model.a1, self.model.A, self.model.C]
 
         self.optimizer = torch.optim.Adam(parameters, lr=self.args.learning_rate)
+        self.scheduler = ExponentialLR(self.optimizer, gamma=0.85)
     
         if state_dict_path: 
             state_dict = torch.load(state_dict_path, map_location = self.args.device)
@@ -50,6 +56,20 @@ class KVAETrainer:
 
         logging.info("Train Loss, Reconstruction Loss, log q(a), ELBO_KF, MSE") # header for losses
 
+        # Save a copy of data to use for evaluation 
+        example_data, example_target = next(iter(train_loader))
+
+        example_data = example_data[0].clone().to(self.args.device)
+        example_data = (example_data - example_data.min()) / (example_data.max() - example_data.min())
+        example_data = torch.where(example_data > 0.5, 1.0, 0.0).unsqueeze(0)
+
+        example_target = example_target[0].clone().to(self.args.device)
+        example_target = (example_target - example_target.min()) / (example_target.max() - example_target.min())
+        example_target = torch.where(example_target > 0.5, 1.0, 0.0).unsqueeze(0)
+
+        # columns_wandb = ["Ground Truth", "Predictions"]
+        # predictions_table = wandb.Table(columns = columns_wandb)
+        
         for epoch in range(self.args.epochs):
             print("Epoch:", epoch)
             running_loss = 0 # keep track of loss per epoch
@@ -58,7 +78,6 @@ class KVAETrainer:
             running_elbo_kf = 0
             running_mse = 0 
 
-            # Bouncing Ball
             for data, _ in tqdm(train_loader):
                 
                 data = data.to(self.args.device)
@@ -69,7 +88,7 @@ class KVAETrainer:
 
                 #forward + backward + optimize
                 self.optimizer.zero_grad()
-                loss, recon_loss, latent_ll, elbo_kf, mse  = self.model(data)
+                loss, recon_loss, latent_ll, elbo_kf, mse, averaged_weights = self.model(data)
                 loss.backward()
                 self.optimizer.step()
 
@@ -82,7 +101,13 @@ class KVAETrainer:
                 print(f"ELBO KF: {elbo_kf}")
                 print(f"MSE: {mse}")
 
-                print("First value of A", self.model.A[0, 0, 0].item())
+                metrics = {"train/train_loss": loss, 
+                            "train/reconstruction_loss": recon_loss, 
+                            "train/q(a)": latent_ll, 
+                            "train/elbo kf": elbo_kf,
+                            "train/mse": mse
+                }
+                wandb.log(metrics)
 
                 n_iterations += 1
                 running_loss += loss.item()
@@ -96,6 +121,7 @@ class KVAETrainer:
             training_latent_ll = running_latent_ll/len(train_loader)
             training_elbo_kf = running_elbo_kf/len(train_loader)
             training_mse = running_mse/len(train_loader)
+            current_lr = self.scheduler.get_last_lr()[0]
 
             print(f"Epoch: {epoch}\
                     \n Train Loss: {training_loss}\
@@ -104,10 +130,22 @@ class KVAETrainer:
                     \n ELBO Kalman Filter: {training_elbo_kf}\
                     \n MSE: {training_mse}")
 
-            logging.info(f"{training_loss:.8f}, {training_recon:.8f}, {training_latent_ll:.8f}, {training_elbo_kf:.8f}, {training_mse:.8f}")
+            logging.info(f"{training_loss:.8f}, {training_recon:.8f}, {training_latent_ll:.8f}, {training_elbo_kf:.8f}, {training_mse:.8f}, {current_lr}")
+            # wandb.log({"train/learning rate": current_lr})
 
             if epoch % self.args.save_every == 0:
                 self._save_model(epoch)
+
+            if epoch % 5 == 0: 
+                predictions, ground_truth = self._plot_predictions(example_data, example_target)
+                wandb.log({"Ground Truth": [ground_truth]})
+                wandb.log({"Predictions": [predictions]})
+
+                plt.bar([1, 2, 3], averaged_weights)
+                wandb.log({"Averaged Weights": plt})
+
+            if epoch % 10 == 0 and epoch != 0: # since I have doubled the training examples 
+                self.scheduler.step() 
 
         logging.info("Finished training.")
 
@@ -128,12 +166,23 @@ class KVAETrainer:
         
         return checkpoint_name
 
+    def _plot_predictions(self, input, target):
+        predicted, _, _ = self.model.predict(input, 20)
+        predicted = predicted.squeeze(0)
+        target = target.squeeze(0)
+        predicted_frames = torchvision.utils.make_grid(predicted,predicted.size(0))
+        ground_truth_frames = torchvision.utils.make_grid(target,target.size(0))
+        predicted_wandb = wandb.Image(predicted_frames)
+        ground_truth_wandb = wandb.Image(ground_truth_frames)
+
+        return predicted_wandb, ground_truth_wandb
+
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', default = "MovingMNIST", type = str, 
+parser.add_argument('--dataset', default = "BouncingBall", type = str, 
                     help = "choose between [MovingMNIST, BouncingBall]")
 parser.add_argument('--epochs', default=1, type=int)
-parser.add_argument('--subdirectory', default="v1/finetuned5", type=str)
+parser.add_argument('--subdirectory', default="finetuned2", type=str)
 parser.add_argument('--model', default="KVAE", type=str)
 
 parser.add_argument('--x_dim', default=1, type=int)
@@ -145,7 +194,7 @@ parser.add_argument('--clip', default=150, type=int)
 parser.add_argument('--scale', default=0.3, type=float)
 
 parser.add_argument('--save_every', default=10, type=int) 
-parser.add_argument('--learning_rate', default=1e-4, type=float)
+parser.add_argument('--learning_rate', default=0.007, type=float)
 parser.add_argument('--batch_size', default=32, type=int)
 parser.add_argument('--initial', default="False", type=str, help = "Does not optimise parameters of DPN for first few epochs.")
 
@@ -165,9 +214,8 @@ def main():
         state_dict_path = "saves/MovingMNIST/kvae/v3/finetuned1/scale=0.2/kvae_state_dict_scale=0.2_99.pth"
         # state_dict_path = None 
     elif args.dataset == "BouncingBall": 
-        state_dict_path = "saves/BouncingBall/kvae/v1/finetuned4/scale=0.3/kvae_state_dict_scale=0.3_99.pth" 
-        # state_dict_path = None 
-        
+        state_dict_path = "saves/BouncingBall/kvae/finetuned1/scale=0.3/kvae_state_dict_scale=0.3_9.pth" 
+       
     # set up logging
     log_fname = f'{args.model}_scale={args.scale}_{args.epochs}.log'
     log_dir = f"logs/{args.dataset}/{args.model}/{args.subdirectory}/"
@@ -176,6 +224,7 @@ def main():
         os.makedirs(log_dir)
     logging.basicConfig(filename=log_path, filemode='w+', level=logging.INFO)
     logging.info(args)
+    wandb.config.update(args)
 
     # Datasets
     if args.dataset == "MovingMNIST": 
@@ -185,7 +234,7 @@ def main():
                     batch_size=args.batch_size,
                     shuffle=True)
     elif args.dataset == "BouncingBall": 
-        train_set = BouncingBallDataLoader('dataset/bouncing_ball/v1/train')
+        train_set = BouncingBallDataLoader('dataset/bouncing_ball/v2/train')
         train_loader = torch.utils.data.DataLoader(
                     dataset=train_set, 
                     batch_size=args.batch_size, 
@@ -193,7 +242,6 @@ def main():
     else: 
         raise NotImplementedError
 
-    
     trainer = KVAETrainer(state_dict_path= state_dict_path, args=args)
     trainer.train(train_loader)
 

@@ -85,7 +85,7 @@ class ELBO():
         self.z_sample = self.z_sample.reshape(B, T, -1).to(self.device)
         z_marginal_ll = self.compute_z_marginal_loglikelihood() # log q(z)
 
-        a_pred, z_next = self._decode_latent(self.z_sample, self.A_t, self.C_t) 
+        a_pred, z_next = self.decode_latent(self.z_sample, self.A_t, self.C_t) 
         self.a_pred = a_pred.reshape(B, T, -1).to(self.device)
         self.z_next = z_next.reshape(B, T, -1).to(self.device)
 
@@ -95,9 +95,9 @@ class ELBO():
         # elbo_kf =  (z_marginal_ll - a_cond_ll - z_cond_ll) # wait this seems to be wrong 
         elbo_kf = a_cond_ll + z_cond_ll - z_marginal_ll
 
-        print("q(z) is ", z_marginal_ll.item())
-        print("q(a|z) is ", a_cond_ll.item())
-        print("q(z|zt is", z_cond_ll.item())
+        # print("q(z) is ", z_marginal_ll.item())
+        # print("q(a|z) is ", a_cond_ll.item())
+        # print("q(z|zt) is", z_cond_ll.item())
 
         loss = self.scale * recon_loss + latent_ll - elbo_kf
 
@@ -106,7 +106,7 @@ class ELBO():
 
         return loss, recon_loss, latent_ll, elbo_kf, mse_loss  
 
-    def _decode_latent(self, z_sample, A, C):
+    def decode_latent(self, z_sample, A, C):
         """ Returns z_t+1 and a_t given z_t and matrices A and C. 
 
         Used to calculate p(z_t|z_t-1) and p(a_t|z_t) for ELBO loss.
@@ -135,6 +135,8 @@ class ELBO():
 
         z_next = torch.reshape(z_next, (B, T, z_dim))
         a_pred = torch.reshape(a_pred, (B, T, a_dim))
+
+        # print("a Prediction", a_pred)
         
         return a_pred, z_next
 
@@ -220,8 +222,6 @@ class ELBO():
     def compute_a_conditional_loglikelihood(self):
         decoder_a = MultivariateNormal(torch.zeros(2).to(self.device), scale_tril=torch.linalg.cholesky(self.R))
         loss_a = decoder_a.log_prob((self.a_sample - self.a_pred)).mean(dim=1).sum().to(self.device)
-        
-        # loss_a = torch.clamp(loss_a, -10000, 10000)
         
         return loss_a
 

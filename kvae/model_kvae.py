@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal, Normal, Bernoulli
+import matplotlib.pyplot as plt 
 
 from kvae.encode_decode import KvaeEncoder, Decoder64, DecoderSimple 
 from kvae.elbo_loss import ELBO
@@ -120,7 +121,7 @@ class KalmanVAE(nn.Module):
         A_t = torch.matmul(weights, self.A.reshape(self.K,-1)).reshape(B,T,self.z_dim,self.z_dim).double()
         C_t = torch.matmul(weights, self.C.reshape(self.K,-1)).reshape(B,T,self.a_dim,self.z_dim).double()
         
-        return A_t, C_t
+        return A_t, C_t, weights 
 
     def filter_posterior(self, obs, A, C): 
         """ Generates filtered posterior p(z_t|a_0:t) using Kalman filtering. 
@@ -232,11 +233,11 @@ class KalmanVAE(nn.Module):
 
     def _kalman_posterior(self, obs, mask=None, filter_only=False):
         
-        A, C = self._interpolate_matrices(obs)
+        A, C, weights = self._interpolate_matrices(obs)
         filtered, pred = self.filter_posterior(obs, A, C)
         smoothed = self.smooth_posterior(A, filtered, pred)
         
-        return smoothed, A, C
+        return smoothed, A, C, weights 
 
     def _decode(self, a):
         """
@@ -264,18 +265,20 @@ class KalmanVAE(nn.Module):
         a_sample, a_mu, a_log_var = self._encode(x) 
         
         # q(z|a)
-        smoothed, A_t, C_t = self._kalman_posterior(a_sample)
+        smoothed, A_t, C_t, weights = self._kalman_posterior(a_sample)
         # p(x_t|a_t)
         x_hat = self._decode(a_sample).reshape(B,T,C,H,W)
         x_mu = x_hat # assume they are the same for now
-        # ELBO
 
+        averaged_weights = self._average_weights(weights)
+
+        # ELBO
         elbo_calculator = ELBO(x, x_mu, x_hat, 
                         a_sample, a_mu, a_log_var, 
                         smoothed, A_t, C_t, self.scale)
         loss, recon_loss, latent_ll, elbo_kf, mse_loss = elbo_calculator.compute_loss()
 
-        return loss, recon_loss, latent_ll, elbo_kf, mse_loss 
+        return loss, recon_loss, latent_ll, elbo_kf, mse_loss, averaged_weights 
 
     def reconstruct(self, input): 
         """ Reconstruct x_hat based on input x. 
@@ -288,31 +291,61 @@ class KalmanVAE(nn.Module):
 
         return x_hat 
 
+    def reconstruct_kalman(self, input): 
+        """ Use the Kalman filter to generate a_t hat, 
+        which is then decoded into x_hat. 
+
+        """
+        (B, T, C, H, W) = input.size()
+
+        with torch.no_grad(): 
+            a_sample, _, _ = self._encode(input) 
+            smoothed, A_t, C_t, weights = self._kalman_posterior(a_sample) 
+            mu_z_smooth, sigma_z_smooth = smoothed  
+            z_dist = MultivariateNormal(mu_z_smooth.squeeze(-1), scale_tril=torch.linalg.cholesky(sigma_z_smooth))
+            z_sample = z_dist.sample()
+            z_sample = z_sample.double()
+
+            elbo_calculator = ELBO(input, input, input, 
+                        a_sample, a_sample, a_sample, 
+                        smoothed, A_t, C_t, self.scale)
+            a_pred, _ = elbo_calculator.decode_latent(z_sample, A_t, C_t)        
+            x_hat = self._decode(a_pred.to(torch.float32)).reshape(B,T,C,H,W)
+
+            averaged_weights = self._average_weights(weights)
+            # print(averaged_weights)
+
+            print((a_pred - a_sample).sum())
+
+        return x_hat 
+
     def predict(self, input, pred_len):
         """ Predicts a sequence of length pred_len given input. 
         """
         ### Seen data
         (B, T, C, H, W) = input.size()
         a_sample, *_ = self._encode(input) 
-        smoothed, A_t, C_t = self._kalman_posterior(a_sample) # shall I used filtered at prediction time? 
+        smoothed, A_t, C_t, weights = self._kalman_posterior(a_sample) # shall I used filtered at prediction time? 
         mu_z_smooth, sigma_z_smooth = smoothed  
         z_dist = MultivariateNormal(mu_z_smooth.squeeze(-1), scale_tril=torch.linalg.cholesky(sigma_z_smooth))
         z_sample = z_dist.sample()
 
         ### Unseen data
-        z_sequence = torch.zeros((B, pred_len, self.z_dim))
-        a_sequence = torch.zeros((B, pred_len, self.a_dim))
+        z_sequence = torch.zeros((B, pred_len, self.z_dim), device = self.device)
+        a_sequence = torch.zeros((B, pred_len, self.a_dim), device = self.device)
         a_t = a_sample[:, -1, :].unsqueeze(1) # BS X T X a_dim
         z_t = z_sample[:, -1, :].unsqueeze(1).to(torch.float32) # BS X T X z_dim
 
         for t in range(pred_len):
-            hidden_state, cell_state = self.state_dyn_net # Not sure
+            hidden_state, cell_state = self.state_dyn_net 
       
             # print(a_t.dtype, z_t.dtype, hidden_state.dtype, cell_state.dtype)
 
             dyn_emb, self.state_dyn_net = self.parameter_net(a_t, (hidden_state, cell_state))
             dyn_emb = self.alpha_out(dyn_emb)
             weights = dyn_emb.softmax(-1).squeeze(1)
+
+            # print(weights)
 
             A_t = torch.matmul(weights, self.A.reshape(self.K,-1)).reshape(B,-1,self.z_dim,self.z_dim) # only for 1 time step 
             C_t = torch.matmul(weights, self.C.reshape(self.K,-1)).reshape(B,-1,self.a_dim,self.z_dim)
@@ -326,9 +359,23 @@ class KalmanVAE(nn.Module):
             z_sequence[:,t,:] = z_t.squeeze(1) 
 
         pred_seq = self._decode(a_sequence).reshape(B,pred_len,C,H,W)
-        print("Prediction Size", pred_seq.size())
+        # print("Prediction Size", pred_seq.size())
         
         return pred_seq, a_sequence, z_sequence
+
+    def _average_weights(self,weights):
+        """ Plot weights 
+        Args: 
+            weights: dim [B*T X K]
+
+        Returns: 
+            fig: Matplotlib object  
+        """
+        averaged_weights = torch.mean(weights, axis = 0)
+        averaged_weights = averaged_weights.tolist()
+        
+        return averaged_weights
+
 
 if __name__ == "__main__": 
     parser = argparse.ArgumentParser()
