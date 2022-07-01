@@ -13,35 +13,45 @@ from kvae.model_kvae import KalmanVAE
 from data.MovingMNIST import MovingMNIST
 from dataset.bouncing_ball.bouncing_data import BouncingBallDataLoader
 
-def plot_predictions(x, pred_len, plot_len = None):
+def plot_predictions(x, target, pred_len, plot_len = None):
     x_predicted, _, _ = kvae.predict(x, pred_len)
     print("Size of Predictions:", x_predicted.size())
     
     for batch_item, i in enumerate(x_predicted):
-        output_dir = f"results/{args.dataset}/KVAE/predictions/"
+        output_dir = f"results/{args.dataset}/KVAE/attempt2/predictions/"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
         if plot_len == None: 
             plot_len = pred_len
 
-        i = i[:plot_len,:,:,:] # something wrong 
-
+        i = i[:plot_len,:,:,:] 
         predicted_frames = torchvision.utils.make_grid(
                                         i,
                                         i.size(0)
                                         )
 
+        ground_truth = target[batch_item,:plot_len,:,:,:]
+        ground_truth_frames = torchvision.utils.make_grid(
+                                        ground_truth,
+                                        ground_truth.size(0)
+                                        )
+
+        stitched_frames = torchvision.utils.make_grid(
+                                        [ground_truth_frames, predicted_frames],
+                                        1
+                                        )
+
         plt.imsave(
                 output_dir + f"predictions_{batch_item}.jpeg",
-                predicted_frames.cpu().permute(1, 2, 0).numpy()
+                stitched_frames.cpu().permute(1, 2, 0).numpy()
                 )
 
 def plot_reconstructions(x, plot_len):
     x_reconstructed = kvae.reconstruct(x)
     
     for batch_item, i  in enumerate(x_reconstructed):
-        output_dir = f"results/{args.dataset}/KVAE/reconstructions/"
+        output_dir = f"results/{args.dataset}/KVAE/attempt2/reconstructions/"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
@@ -62,7 +72,7 @@ def plot_loss_over_time():
 
 
 if __name__ == "__main__": 
-    state_dict_path = "saves/BouncingBall/kvae/v1/finetuned2/scale=0.3/kvae_state_dict_scale=0.3_199.pth" 
+    state_dict_path = "saves/BouncingBall/kvae/v1/finetuned4/scale=0.3/kvae_state_dict_scale=0.3_99.pth" 
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default = "BouncingBall", type = str, 
@@ -72,7 +82,7 @@ if __name__ == "__main__":
     parser.add_argument('--z_dim', default=4, type=int)
     parser.add_argument('--K', default=3, type=int)
     parser.add_argument('--scale', default=0.3, type=float)
-    parser.add_argument('--batch_size', default=10, type=int)
+    parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--device', default="cpu", type=str)
     args = parser.parse_args()
 
@@ -81,25 +91,29 @@ if __name__ == "__main__":
     kvae.load_state_dict(state_dict)
 
     if args.dataset == "MovingMNIST": 
-        train_set = MovingMNIST(root='.dataset/mnist', train=True, download=True)
+        train_set = MovingMNIST(root='dataset/mnist', train=True, download=True)
         train_loader = torch.utils.data.DataLoader(
                     dataset=train_set,
                     batch_size=args.batch_size,
-                    shuffle=True)
+                    shuffle=False)
 
     elif args.dataset == "BouncingBall": 
         train_set = BouncingBallDataLoader('dataset/bouncing_ball/v1/train')
         train_loader = torch.utils.data.DataLoader(
                     dataset=train_set, 
                     batch_size=args.batch_size, 
-                    shuffle=True)
+                    shuffle=False)
     
     data, target = next(iter(train_loader))
     data = data.to(args.device)
     data = (data - data.min()) / (data.max() - data.min())
     data = torch.where(data > 0.5, 1.0, 0.0)
 
-    plot_predictions(data, pred_len = 50)  
+    target = target.to(args.device)
+    target = (target - target.min()) / (target.max() - target.min())
+    target = torch.where(target > 0.5, 1.0, 0.0)
+
+    plot_predictions(data, target, pred_len = 50)  
     # plot_reconstructions(data, 50)
 
     # pred_seq, *_ = kvae.predict(data, pred_len = 50)
