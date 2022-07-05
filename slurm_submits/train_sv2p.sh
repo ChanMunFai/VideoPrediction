@@ -11,7 +11,9 @@ uptime
 
 cd /vol/bitbucket/mc821/VideoPrediction
 
-# python main_sv2p.py --stage2_epochs=1 --stage=2
+dset=BouncingBall
+
+python main_sv2p.py --stage=0 --dataset $dset
 
 # python main_sv2p.py --stage=3 --epochs=100 --learning_rate=1e-4 --beta_end=0.0001
 # python main_sv2p.py --stage=3 --epochs=100 --learning_rate=1e-4 --beta_end=0.01
@@ -21,5 +23,4 @@ cd /vol/bitbucket/mc821/VideoPrediction
 ### Train posterior networks 
 # python -m sv2p.train_posterior_sv2p --epochs=50 --beta=10
 
-### Updated training 
-python main_sv2p_v3.py --stage=2 --epochs=300 --learning_rate=1e-4
+### Updated training

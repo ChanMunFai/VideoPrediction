@@ -75,7 +75,6 @@ class ELBO():
         (B, T, *_) = self.x.size()
 
         recon_loss = self.compute_reconstruction_loss(mode = "bernoulli")
-        kld = 0 
         latent_ll = self.compute_a_marginal_loglikelihood() # log q(a)
 
         ### LGSSM 
@@ -92,14 +91,23 @@ class ELBO():
         z_cond_ll = self.compute_z_conditional_loglikelihood() # log p(z_t| z_t-1)
         a_cond_ll = self.compute_a_conditional_loglikelihood() # log p(a_t| z_t)
 
-        # elbo_kf =  (z_marginal_ll - a_cond_ll - z_cond_ll) # wait this seems to be wrong 
         elbo_kf = a_cond_ll + z_cond_ll - z_marginal_ll
+        
+        print("=======> ELBO calculator")
 
-        # print("q(z) is ", z_marginal_ll.item())
-        # print("q(a|z) is ", a_cond_ll.item())
-        # print("q(z|zt) is", z_cond_ll.item())
+        print("log p(zt | zt-1) is", z_cond_ll.item())
+        print("log p(a_t| z_t) is ", a_cond_ll.item())
+        print("log q(z) is ", z_marginal_ll.item())
+        print("log q(a) is ", latent_ll.item())
+        
+        print("elbo kf is", elbo_kf.item())
+
+        kld = latent_ll - elbo_kf
+        print("KLD is", kld.item())
+        print("NLL is", recon_loss.item())
 
         loss = self.scale * recon_loss + latent_ll - elbo_kf
+        print("loss is", loss)
 
         # Calculate MSE for tracking 
         mse_loss = self.compute_reconstruction_loss(mode = "mse")
@@ -192,6 +200,7 @@ class ELBO():
         
         # pdf of a given q_a 
         latent_ll = q_a.log_prob(self.a_sample).mean(dim=0).sum().to(self.device) # summed across all time steps, averaged in batch 
+        
         return latent_ll
 
     def compute_z_marginal_loglikelihood(self):
@@ -208,6 +217,8 @@ class ELBO():
         return loss_qz
 
     def compute_z_conditional_loglikelihood(self):
+        """ Calculate q(zt|zt-1)
+        """
         decoder_z0 = MultivariateNormal(self.mu_z0, scale_tril=torch.linalg.cholesky(self.sigma_z0))
         decoder_z = MultivariateNormal(torch.zeros(4).to(self.device), scale_tril=torch.linalg.cholesky(self.Q))
         
@@ -215,13 +226,17 @@ class ELBO():
         loss_zt_ztminus1 = decoder_z.log_prob((self.z_sample[:, 1:, :] - self.z_next[:,:-1, :])).mean(dim=0).sum().to(self.device) # averaged across batches, summed over time
 
         loss_z = loss_z0 + loss_zt_ztminus1
-        print("q(z_0) is ", loss_z0.item())
 
         return loss_z
 
     def compute_a_conditional_loglikelihood(self):
+        """ Calculate q(at|zt)
+        """
+
         decoder_a = MultivariateNormal(torch.zeros(2).to(self.device), scale_tril=torch.linalg.cholesky(self.R))
-        loss_a = decoder_a.log_prob((self.a_sample - self.a_pred)).mean(dim=1).sum().to(self.device)
+        loss_a = decoder_a.log_prob((self.a_sample - self.a_pred))
+        # print(loss_a.size()) BS X T 
+        loss_a = loss_a.mean(dim=0).sum().to(self.device)
         
         return loss_a
 

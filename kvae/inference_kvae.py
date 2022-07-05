@@ -7,7 +7,7 @@ import torch.nn as nn
 from torch.distributions import MultivariateNormal, Normal, Bernoulli
 import torchvision
 
-from kvae.encode_decode import KvaeEncoder, Decoder64, DecoderSimple 
+from kvae.modules import KvaeEncoder, Decoder64, DecoderSimple 
 from kvae.elbo_loss import ELBO
 from kvae.model_kvae import KalmanVAE
 from data.MovingMNIST import MovingMNIST
@@ -18,9 +18,12 @@ def plot_predictions(x, target, pred_len, plot_len = None):
     print("Size of Predictions:", x_predicted.size())
     
     for batch_item, i in enumerate(x_predicted):
-        output_dir = f"results/{args.dataset}/KVAE/attempt2/predictions/"
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        output_dir_pred = f"results/{args.dataset}/KVAE/attempt6/predictions/"
+        output_dir_gt = f"results/{args.dataset}/KVAE/attempt6/ground_truth/"
+        if not os.path.exists(output_dir_pred):
+            os.makedirs(output_dir_pred)
+        if not os.path.exists(output_dir_gt):
+            os.makedirs(output_dir_gt)
 
         if plot_len == None: 
             plot_len = pred_len
@@ -43,9 +46,15 @@ def plot_predictions(x, target, pred_len, plot_len = None):
                                         )
 
         plt.imsave(
-                output_dir + f"predictions_{batch_item}.jpeg",
-                stitched_frames.cpu().permute(1, 2, 0).numpy()
+                output_dir_pred + f"predictions_{batch_item}.jpeg",
+                predicted_frames.cpu().permute(1, 2, 0).numpy()
                 )
+
+        plt.imsave(
+                output_dir_gt + f"ground_truth_{batch_item}.jpeg",
+                ground_truth_frames.cpu().permute(1, 2, 0).numpy()
+                )
+
 
 def plot_reconstructions(x, plot_len, reconstruct_kalman = True):
     if reconstruct_kalman == True: 
@@ -55,9 +64,9 @@ def plot_reconstructions(x, plot_len, reconstruct_kalman = True):
     
     for batch_item, i  in enumerate(x_reconstructed):
         if reconstruct_kalman == False: 
-            output_dir = f"results/{args.dataset}/KVAE/attempt2/reconstructions/"
+            output_dir = f"results/{args.dataset}/KVAE/attempt6/reconstructions/"
         else: 
-            output_dir = f"results/{args.dataset}/KVAE/attempt2/reconstructions_kf/"
+            output_dir = f"results/{args.dataset}/KVAE/attempt6/reconstructions_kf/"
         
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -90,7 +99,7 @@ def plot_loss_over_time():
 
 
 if __name__ == "__main__": 
-    state_dict_path = "saves/BouncingBall/kvae/finetuned2/scale=0.3/kvae_state_dict_scale=0.3_99.pth" 
+    state_dict_path = "saves/BouncingBall/kvae/v4/scale=0.3/kvae_state_dict_scale=0.3_40.pth" 
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default = "BouncingBall", type = str, 
@@ -102,6 +111,9 @@ if __name__ == "__main__":
     parser.add_argument('--scale', default=0.3, type=float)
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--device', default="cpu", type=str)
+    parser.add_argument('--alpha', default="rnn", type=str, 
+                    help = "choose between [mlp, rnn]")
+
     args = parser.parse_args()
 
     kvae = KalmanVAE(args = args).to(args.device)
@@ -120,7 +132,7 @@ if __name__ == "__main__":
         train_loader = torch.utils.data.DataLoader(
                     dataset=train_set, 
                     batch_size=args.batch_size, 
-                    shuffle=False)
+                    shuffle=True)
     
     data, target = next(iter(train_loader))
     data = data.to(args.device)
@@ -131,8 +143,19 @@ if __name__ == "__main__":
     target = (target - target.min()) / (target.max() - target.min())
     target = torch.where(target > 0.5, 1.0, 0.0)
 
+    # with torch.no_grad():
+    #     kvae(data)
+    #     for name, param in kvae.named_parameters():
+    #         print(name) 
+ 
+    # print(kvae.A.size()) # K X z_dim X z_dim 
+    # print(kvae.A) # different 
+    # print(kvae.C) # a bit similar but still different 
+
+    # Model does not learn to use different weights to get different dynamics 
+
     plot_predictions(data, target, pred_len = 20)  
-    # plot_reconstructions(data, 20, reconstruct_kalman = True)
+    # plot_reconstructions(data, 20, reconstruct_kalman = False)
 
     # pred_seq, *_ = kvae.predict(data, pred_len = 50)
     # print(pred_seq[0,0])

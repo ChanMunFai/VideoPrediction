@@ -1,4 +1,0 @@
-INFO:root:Namespace(K=3, a_dim=2, batch_size=32, clip=150, dataset='BouncingBall', device=device(type='cuda'), epochs=100, initial='False', learning_rate=0.007, model='KVAE', save_every=10, scale=0.32, subdirectory='v1/finetuned6', x_dim=1, z_dim=4)
-INFO:root:Starting KVAE training for 100 epochs.
-INFO:root:Train Loss, Reconstruction Loss, log q(a), ELBO_KF, MSE
-INFO:root:1600.19842409, 3440.04519332, 40.04413701, -459.33985385, 978.65504646, [0.007]

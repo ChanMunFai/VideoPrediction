@@ -22,7 +22,6 @@ from data.MovingMNIST import MovingMNIST
 from dataset.bouncing_ball.bouncing_data import BouncingBallDataLoader
 
 import wandb
-wandb.init(project="KVAE_bouncing_ball")
 
 class KVAETrainer:
     def __init__(self, state_dict_path = None, *args, **kwargs):
@@ -33,14 +32,10 @@ class KVAETrainer:
         # Change out encoder and decoder 
         self.model = KalmanVAE(args = self.args).to(self.args.device)
         
-        if self.args.initial == "True": 
-            parameters = list(self.model.encoder.parameters()) + list(self.model.decoder.parameters()) \
-                        + [self.model.a1, self.model.A, self.model.C]
-        else: 
-            parameters = list(self.model.encoder.parameters()) + list(self.model.decoder.parameters()) \
-                        + list(self.model.parameter_net.parameters()) + list(self.model.alpha_out.parameters()) \
-                        + [self.model.a1, self.model.A, self.model.C]
-
+        
+        parameters = list(self.model.encoder.parameters()) + list(self.model.decoder.parameters()) \
+                    + [self.model.a1, self.model.A, self.model.C]
+        
         self.optimizer = torch.optim.Adam(parameters, lr=self.args.learning_rate)
         self.scheduler = ExponentialLR(self.optimizer, gamma=0.85)
     
@@ -71,6 +66,11 @@ class KVAETrainer:
         # predictions_table = wandb.Table(columns = columns_wandb)
         
         for epoch in range(self.args.epochs):
+
+            if epoch >= 1: # Otherwise train KVAE only 
+                self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args.learning_rate)
+                self.scheduler = ExponentialLR(self.optimizer, gamma=0.85)
+
             print("Epoch:", epoch)
             running_loss = 0 # keep track of loss per epoch
             running_recon = 0
@@ -88,11 +88,10 @@ class KVAETrainer:
 
                 #forward + backward + optimize
                 self.optimizer.zero_grad()
-                loss, recon_loss, latent_ll, elbo_kf, mse, averaged_weights = self.model(data)
+                loss, recon_loss, latent_ll, elbo_kf, mse, averaged_weights, var_diff = self.model(data)
                 loss.backward()
-                self.optimizer.step()
-
                 nn.utils.clip_grad_norm_(self.model.parameters(), self.args.clip)
+                self.optimizer.step()
 
                 # forward pass
                 print(f"Loss: {loss}")
@@ -105,9 +104,11 @@ class KVAETrainer:
                             "train/reconstruction_loss": recon_loss, 
                             "train/q(a)": latent_ll, 
                             "train/elbo kf": elbo_kf,
-                            "train/mse": mse
+                            "train/mse": mse,
+                            "variance of weights": var_diff
                 }
-                wandb.log(metrics)
+                if wandb_on: 
+                    wandb.log(metrics)
 
                 n_iterations += 1
                 running_loss += loss.item()
@@ -137,12 +138,13 @@ class KVAETrainer:
                 self._save_model(epoch)
 
             if epoch % 5 == 0: 
-                predictions, ground_truth = self._plot_predictions(example_data, example_target)
-                wandb.log({"Ground Truth": [ground_truth]})
-                wandb.log({"Predictions": [predictions]})
+                if wandb_on: 
+                    predictions, ground_truth = self._plot_predictions(example_data, example_target)
+                    wandb.log({"Ground Truth": [ground_truth]})
+                    wandb.log({"Predictions": [predictions]})
 
-                plt.bar([1, 2, 3], averaged_weights)
-                wandb.log({"Averaged Weights": plt})
+                    plt.bar([1, 2, 3], averaged_weights)
+                    wandb.log({"Averaged Weights": plt})
 
             if epoch % 10 == 0 and epoch != 0: # since I have doubled the training examples 
                 self.scheduler.step() 
@@ -182,8 +184,10 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', default = "BouncingBall", type = str, 
                     help = "choose between [MovingMNIST, BouncingBall]")
 parser.add_argument('--epochs', default=1, type=int)
-parser.add_argument('--subdirectory', default="finetuned2", type=str)
+parser.add_argument('--subdirectory', default="v4", type=str)
 parser.add_argument('--model', default="KVAE", type=str)
+parser.add_argument('--alpha', default="rnn", type=str, 
+                    help = "choose between [mlp, rnn]")
 
 parser.add_argument('--x_dim', default=1, type=int)
 parser.add_argument('--a_dim', default=2, type=int)
@@ -195,15 +199,18 @@ parser.add_argument('--scale', default=0.3, type=float)
 
 parser.add_argument('--save_every', default=10, type=int) 
 parser.add_argument('--learning_rate', default=0.007, type=float)
-parser.add_argument('--batch_size', default=32, type=int)
-parser.add_argument('--initial', default="False", type=str, help = "Does not optimise parameters of DPN for first few epochs.")
-
+parser.add_argument('--batch_size', default=1, type=int)
+parser.add_argument('--wandb_on', default=None, type=str)
 
 def main():
     seed = 128
     torch.manual_seed(seed)
-
     args = parser.parse_args()
+
+    global wandb_on 
+    wandb_on = args.wandb_on 
+    if wandb_on: 
+        wandb.init(project="KVAE_bouncing_ball")
 
     if torch.cuda.is_available():
         args.device = torch.device('cuda')
@@ -214,7 +221,8 @@ def main():
         state_dict_path = "saves/MovingMNIST/kvae/v3/finetuned1/scale=0.2/kvae_state_dict_scale=0.2_99.pth"
         # state_dict_path = None 
     elif args.dataset == "BouncingBall": 
-        state_dict_path = "saves/BouncingBall/kvae/finetuned1/scale=0.3/kvae_state_dict_scale=0.3_9.pth" 
+        # state_dict_path = "saves/BouncingBall/kvae/v2/scale=0.3/kvae_state_dict_scale=0.3_30.pth" 
+        state_dict_path = None 
        
     # set up logging
     log_fname = f'{args.model}_scale={args.scale}_{args.epochs}.log'
@@ -224,7 +232,8 @@ def main():
         os.makedirs(log_dir)
     logging.basicConfig(filename=log_path, filemode='w+', level=logging.INFO)
     logging.info(args)
-    wandb.config.update(args)
+    if wandb_on: 
+        wandb.config.update(args)
 
     # Datasets
     if args.dataset == "MovingMNIST": 
