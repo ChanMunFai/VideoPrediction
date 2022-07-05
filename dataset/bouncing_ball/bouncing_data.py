@@ -4,15 +4,19 @@ import os
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+# from torchvideo.transforms import *
+
 from matplotlib import pyplot as plt, animation
 import cv2
 from glob import glob
 
 class BouncingBallDataLoader(Dataset):
 
-    def __init__(self, root_dir):
+    def __init__(self, root_dir, image = True, transform = None):
         self.root_dir = root_dir
         self.file_list = os.listdir(root_dir)
+        self.image = image # otherwise returns positions 
+        self.transform = transform 
 
     def __len__(self):
         return len(self.file_list)
@@ -25,15 +29,31 @@ class BouncingBallDataLoader(Dataset):
         """
         sample = np.load(os.path.join(
             self.root_dir, self.file_list[i]))
-        im = sample['images']
-        if len(im.shape) == 3:
-            im = im[:,np.newaxis,:,:]
-        else:
-            im = im.transpose((0,3,1,2))
 
-        seq_len = len(im)//2
+        if self.image == True: 
+            im = sample['images']
+            if len(im.shape) == 3:
+                im = im[:,np.newaxis,:,:]
+            else:
+                im = im.transpose((0,3,1,2))
 
-        seq, target = im[:seq_len], im[seq_len:]
+            # if self.transform: 
+            #     im = im.transpose((1,0,2,3))
+            #     print(im.shape)
+            #     pil_video = pytorchvideo.transforms.NDArrayToPILVideo(format = "cthw")(im)
+
+
+                # print(im.shape)
+                # pil_im = transforms.ToPILImage()(im)
+                # print(type(pil_im))
+                # im = self.transform(pil_im)
+
+            seq_len = len(im)//2
+            seq, target = im[:seq_len], im[seq_len:]
+        else: 
+            position = sample["positions"][:,:2] # only retain positions
+            seq_len = len(position)//2
+            seq, target = position[:seq_len], position[seq_len:]
 
         return seq, target
 
@@ -69,16 +89,20 @@ def visualize_rollout(rollout, interval=50, show_step=False, save=False):
 
 
 if __name__ == '__main__':
-    dl = BouncingBallDataLoader('dataset/bouncing_ball/v1/train')
-    print(len(dl))
+    # dl = BouncingBallDataLoader('dataset/bouncing_ball/v1/train', image = False)
+    # train_loader = torch.utils.data.DataLoader(dl, batch_size=10, shuffle=False)
+    # sample, target = next(iter(train_loader))
+    # print(sample[0, 0], sample[0,1])
+    # print(torch.max(sample))
+    # print(torch.min(sample))
+    # print(sample.size())
+    # print(target.size())
+
+    dl = BouncingBallDataLoader('dataset/bouncing_ball/v2/train', image = True, transform = True)
     train_loader = torch.utils.data.DataLoader(dl, batch_size=10, shuffle=False)
     sample, target = next(iter(train_loader))
-    print(torch.max(sample))
-    print(torch.min(sample))
-    print(sample.size())
-    print(target.size())
 
-    sample_np = sample.detach().cpu().numpy()
-    sample_np = sample_np.transpose((0, 1, 3, 4, 2))
+    # sample_np = sample.detach().cpu().numpy()
+    # sample_np = sample_np.transpose((0, 1, 3, 4, 2))
 
     # visualize_rollout(sample_np[8], interval=50, show_step=False, save=True)
