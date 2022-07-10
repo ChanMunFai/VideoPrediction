@@ -18,8 +18,8 @@ def plot_predictions(x, target, pred_len, plot_len = None):
     print("Size of Predictions:", x_predicted.size())
     
     for batch_item, i in enumerate(x_predicted):
-        output_dir_pred = f"results/{args.dataset}/KVAE/attempt6/predictions/"
-        output_dir_gt = f"results/{args.dataset}/KVAE/attempt6/ground_truth/"
+        output_dir_pred = f"results/{args.dataset}/KVAE/{args.subdirectory}/predictions/"
+        output_dir_gt = f"results/{args.dataset}/KVAE/{args.subdirectory}/ground_truth/"
         if not os.path.exists(output_dir_pred):
             os.makedirs(output_dir_pred)
         if not os.path.exists(output_dir_gt):
@@ -64,9 +64,9 @@ def plot_reconstructions(x, plot_len, reconstruct_kalman = True):
     
     for batch_item, i  in enumerate(x_reconstructed):
         if reconstruct_kalman == False: 
-            output_dir = f"results/{args.dataset}/KVAE/attempt6/reconstructions/"
+            output_dir = f"results/{args.dataset}/KVAE/{args.subdirectory}/reconstructions/"
         else: 
-            output_dir = f"results/{args.dataset}/KVAE/attempt6/reconstructions_kf/"
+            output_dir = f"results/{args.dataset}/KVAE/{args.subdirectory}/reconstructions_kf/"
         
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
@@ -99,7 +99,7 @@ def plot_loss_over_time():
 
 
 if __name__ == "__main__": 
-    state_dict_path = "saves/BouncingBall/kvae/v4/scale=0.3/kvae_state_dict_scale=0.3_40.pth" 
+    state_dict_path = "saves/BouncingBall/kvae/v4/scale=0.3/kvae_state_dict_scale=0.3_70.pth" 
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default = "BouncingBall", type = str, 
@@ -113,6 +113,8 @@ if __name__ == "__main__":
     parser.add_argument('--device', default="cpu", type=str)
     parser.add_argument('--alpha', default="rnn", type=str, 
                     help = "choose between [mlp, rnn]")
+
+    parser.add_argument('--subdirectory', default="attempt3", type=str)
 
     args = parser.parse_args()
 

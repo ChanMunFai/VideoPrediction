@@ -240,12 +240,10 @@ class MLP(nn.Module):
                 m.bias.data.fill_(0.1)
 
     def forward(self, inputs):
-        # Input shape: [num_sims, num_things, num_features]
         x = F.relu(self.fc1(inputs))
         x = F.relu(self.fc2(x))
         x = self.fc_final(x)
         return x
-
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)

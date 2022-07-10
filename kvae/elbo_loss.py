@@ -56,7 +56,7 @@ class ELBO():
         self.mu_z0 = (torch.zeros(self.z_dim)).double().to(self.device)
         self.sigma_z0 = (20*torch.eye(self.z_dim)).double().to(self.device)
 
-    def compute_loss(self): 
+    def compute_loss(self, print_loss = False): 
         """
         Instead of using beta as in Beta-VAE, we use a scale parameter on the 
         recon_loss. 
@@ -92,22 +92,22 @@ class ELBO():
         a_cond_ll = self.compute_a_conditional_loglikelihood() # log p(a_t| z_t)
 
         elbo_kf = a_cond_ll + z_cond_ll - z_marginal_ll
-        
-        print("=======> ELBO calculator")
-
-        print("log p(zt | zt-1) is", z_cond_ll.item())
-        print("log p(a_t| z_t) is ", a_cond_ll.item())
-        print("log q(z) is ", z_marginal_ll.item())
-        print("log q(a) is ", latent_ll.item())
-        
-        print("elbo kf is", elbo_kf.item())
-
-        kld = latent_ll - elbo_kf
-        print("KLD is", kld.item())
-        print("NLL is", recon_loss.item())
-
         loss = self.scale * recon_loss + latent_ll - elbo_kf
-        print("loss is", loss)
+
+        if print_loss == True: 
+            print("=======> ELBO calculator")
+
+            print("log p(zt | zt-1) is", z_cond_ll.item())
+            print("log p(a_t| z_t) is ", a_cond_ll.item())
+            print("log q(z) is ", z_marginal_ll.item())
+            print("log q(a) is ", latent_ll.item())
+            
+            print("elbo kf is", elbo_kf.item())
+
+            kld = latent_ll - elbo_kf
+            print("KLD is", kld.item())
+            print("NLL is", recon_loss.item())
+            print("loss is", loss)
 
         # Calculate MSE for tracking 
         mse_loss = self.compute_reconstruction_loss(mode = "mse")
@@ -131,7 +131,6 @@ class ELBO():
             z_next: vector z_t+1 of dim [B X T X z_dim]
             a_pred: vector a_t of dim [B X T X a_dim]
         """
-        # Do this just in case I got matrix multiplication wrong
         B, T, z_dim = z_sample.size() 
         z_sample = torch.reshape(z_sample, (B*T, -1)) # [B*T, z_dim]
         A = torch.reshape(A, (B*T, z_dim, z_dim)) # [B*T, z_dim, z_dim]
@@ -186,9 +185,9 @@ class ELBO():
         find its pdf given a_sample. 
 
         Arguments: 
-            a_sample: Dim [BS X Time X a_dim ]
-            a_mu: Dim [BS X Time X a_dim ]
-            a_log_var: Dim [BS X Time X a_dim ]
+            a_sample: Dim [BS X Time X a_dim]
+            a_mu: Dim [BS X Time X a_dim]
+            a_log_var: Dim [BS X Time X a_dim]
 
         Returns: 
             latent_ll: q(a_sample)
@@ -234,8 +233,7 @@ class ELBO():
         """
 
         decoder_a = MultivariateNormal(torch.zeros(2).to(self.device), scale_tril=torch.linalg.cholesky(self.R))
-        loss_a = decoder_a.log_prob((self.a_sample - self.a_pred))
-        # print(loss_a.size()) BS X T 
+        loss_a = decoder_a.log_prob((self.a_sample - self.a_pred)) # BS X T 
         loss_a = loss_a.mean(dim=0).sum().to(self.device)
         
         return loss_a
